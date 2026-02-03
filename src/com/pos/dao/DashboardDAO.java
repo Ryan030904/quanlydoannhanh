@@ -11,6 +11,7 @@ import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Map;
 import java.util.List;
 
@@ -99,6 +100,24 @@ public class DashboardDAO {
         }
     }
 
+    public static class IngredientConsumptionRow {
+        public final int ingredientId;
+        public final String name;
+        public final String unit;
+        public final double consumed;
+        public final double currentStock;
+        public final double minStock;
+
+        public IngredientConsumptionRow(int ingredientId, String name, String unit, double consumed, double currentStock, double minStock) {
+            this.ingredientId = ingredientId;
+            this.name = name;
+            this.unit = unit;
+            this.consumed = consumed;
+            this.currentStock = currentStock;
+            this.minStock = minStock;
+        }
+    }
+
     public static Kpi loadKpi(LocalDate fromDate, LocalDate toDate) {
         Kpi k = new Kpi();
         String timeCol;
@@ -148,7 +167,7 @@ public class DashboardDAO {
             cts.products = countTable(c, "products");
             cts.employees = countTable(c, "employees");
             cts.customers = countTable(c, "customers");
-            cts.suppliers = countTable(c, "suppliers");
+            cts.suppliers = countActiveSuppliers(c);
         } catch (SQLException ex) {
             ex.printStackTrace();
         }
@@ -164,9 +183,13 @@ public class DashboardDAO {
             if (timeCol == null) timeCol = "order_id";
 
             String productNameExpr;
-            boolean hasProductName = hasColumn(c, "order_details", "product_name");
-            if (hasProductName) {
-                productNameExpr = "COALESCE(d.product_name, p.product_name, CONCAT('Món#', d.product_id))";
+            String detailsNameCol = null;
+            if (hasColumn(c, "order_details", "product_name")) detailsNameCol = "product_name";
+            else if (hasColumn(c, "order_details", "item_name")) detailsNameCol = "item_name";
+            else if (hasColumn(c, "order_details", "name")) detailsNameCol = "name";
+
+            if (detailsNameCol != null) {
+                productNameExpr = "COALESCE(NULLIF(d." + detailsNameCol + ", ''), p.product_name, CONCAT('Món#', d.product_id))";
             } else {
                 productNameExpr = "COALESCE(p.product_name, CONCAT('Món#', d.product_id))";
             }
@@ -191,6 +214,186 @@ public class DashboardDAO {
                     Object p = params.get(i);
                     if (p instanceof Timestamp) ps.setTimestamp(i + 1, (Timestamp) p);
                     else ps.setObject(i + 1, p);
+                }
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        list.add(new TopProductRow(
+                                rs.getString("product_name"),
+                                rs.getInt("qty"),
+                                rs.getDouble("revenue")
+                        ));
+                    }
+                }
+            }
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+        }
+        return list;
+    }
+
+    private static String productIngredientsProductIdColumn(Connection c) {
+        if (c == null) return "product_id";
+        if (hasColumn(c, "product_ingredients", "product_id")) return "product_id";
+        if (hasColumn(c, "product_ingredients", "item_id")) return "item_id";
+        return "product_id";
+    }
+
+    private static String orderDetailsProductIdColumn(Connection c) {
+        if (c == null) return "product_id";
+        if (hasColumn(c, "order_details", "product_id")) return "product_id";
+        if (hasColumn(c, "order_details", "item_id")) return "item_id";
+        return "product_id";
+    }
+
+    private static String orderDetailsQuantityColumn(Connection c) {
+        if (c == null) return "quantity";
+        if (hasColumn(c, "order_details", "quantity")) return "quantity";
+        if (hasColumn(c, "order_details", "qty")) return "qty";
+        return "quantity";
+    }
+
+    public static List<IngredientConsumptionRow> findIngredientConsumption(LocalDate fromDate, LocalDate toDate, int limit) {
+        List<IngredientConsumptionRow> list = new ArrayList<>();
+        // limit <= 0 means return full list
+
+        try (Connection c = DBConnection.getConnection()) {
+            if (!hasTable(c, "orders") || !hasTable(c, "order_details") || !hasTable(c, "product_ingredients") || !hasTable(c, "ingredients")) {
+                return list;
+            }
+
+            String timeCol = hasColumn(c, "orders", "order_time") ? "order_time" : (hasColumn(c, "orders", "created_at") ? "created_at" : null);
+            if (timeCol == null) timeCol = "order_id";
+
+            String detailPidCol = orderDetailsProductIdColumn(c);
+            String qtyCol = orderDetailsQuantityColumn(c);
+            String piPidCol = productIngredientsProductIdColumn(c);
+
+            boolean hasMinStock = hasColumn(c, "ingredients", "min_stock_level");
+            String minStockExpr = hasMinStock ? "COALESCE(i.min_stock_level,0)" : "0";
+
+            boolean hasActive = hasColumn(c, "ingredients", "is_active");
+            String activeWhere = hasActive ? " WHERE i.is_active = 1" : "";
+
+            StringBuilder consumptionAgg = new StringBuilder(
+                    "SELECT pi.ingredient_id AS ingredient_id, " +
+                            "COALESCE(SUM(pi.quantity_needed * d." + qtyCol + "),0) AS consumed " +
+                            "FROM order_details d JOIN orders o ON o.order_id = d.order_id " +
+                            "JOIN product_ingredients pi ON pi." + piPidCol + " = d." + detailPidCol + " " +
+                            "WHERE 1=1"
+            );
+
+            List<Object> params = new ArrayList<>();
+            if (fromDate != null) {
+                consumptionAgg.append(" AND o.").append(timeCol).append(" >= ?");
+                params.add(Timestamp.valueOf(fromDate.atStartOfDay()));
+            }
+            if (toDate != null) {
+                consumptionAgg.append(" AND o.").append(timeCol).append(" < ?");
+                params.add(Timestamp.valueOf(toDate.plusDays(1).atStartOfDay()));
+            }
+
+            consumptionAgg.append(" GROUP BY pi.ingredient_id");
+
+            StringBuilder sql = new StringBuilder(
+                    "SELECT i.ingredient_id, i.ingredient_name, i.unit, " +
+                            "COALESCE(cn.consumed,0) AS consumed, " +
+                            "COALESCE(i.current_stock,0) AS current_stock, " + minStockExpr + " AS min_stock_level " +
+                            "FROM ingredients i " +
+                            "LEFT JOIN (" + consumptionAgg + ") cn ON cn.ingredient_id = i.ingredient_id" +
+                            activeWhere +
+                            " ORDER BY consumed DESC, i.ingredient_name ASC"
+            );
+            if (limit > 0) {
+                sql.append(" LIMIT ").append(limit);
+            }
+
+            try (PreparedStatement ps = c.prepareStatement(sql.toString())) {
+                for (int i = 0; i < params.size(); i++) {
+                    Object p = params.get(i);
+                    if (p instanceof Timestamp) ps.setTimestamp(i + 1, (Timestamp) p);
+                    else ps.setObject(i + 1, p);
+                }
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        list.add(new IngredientConsumptionRow(
+                                rs.getInt("ingredient_id"),
+                                rs.getString("ingredient_name"),
+                                rs.getString("unit"),
+                                rs.getDouble("consumed"),
+                                rs.getDouble("current_stock"),
+                                rs.getDouble("min_stock_level")
+                        ));
+                    }
+                }
+            }
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+        }
+        return list;
+    }
+
+    public static List<TopProductRow> findProductSales(LocalDate fromDate, LocalDate toDate) {
+        List<TopProductRow> list = new ArrayList<>();
+        try (Connection c = DBConnection.getConnection()) {
+            String timeCol = hasColumn(c, "orders", "order_time") ? "order_time" : (hasColumn(c, "orders", "created_at") ? "created_at" : null);
+            if (timeCol == null) timeCol = "order_id";
+
+            String pidCol = orderDetailsProductIdColumn(c);
+            String qtyCol = orderDetailsQuantityColumn(c);
+            String totalCol = null;
+            if (hasColumn(c, "order_details", "total_price")) totalCol = "total_price";
+            else if (hasColumn(c, "order_details", "total_amount")) totalCol = "total_amount";
+            else if (hasColumn(c, "order_details", "line_total")) totalCol = "line_total";
+
+            String detailsNameCol = null;
+            if (hasColumn(c, "order_details", "product_name")) detailsNameCol = "product_name";
+            else if (hasColumn(c, "order_details", "item_name")) detailsNameCol = "item_name";
+            else if (hasColumn(c, "order_details", "name")) detailsNameCol = "name";
+
+            String saleNameExpr = detailsNameCol != null
+                    ? ("MAX(NULLIF(d." + detailsNameCol + ", ''))")
+                    : "NULL";
+
+            String pidExpr = "COALESCE(d." + pidCol + ",0)";
+            String revenueExpr = totalCol != null ? ("COALESCE(SUM(d." + totalCol + "),0)") : "0";
+
+            StringBuilder salesAgg = new StringBuilder(
+                    "SELECT " + pidExpr + " AS product_id, " + saleNameExpr + " AS sale_name, " +
+                            "COALESCE(SUM(d." + qtyCol + "),0) AS qty, " + revenueExpr + " AS revenue " +
+                            "FROM order_details d JOIN orders o ON o.order_id = d.order_id WHERE 1=1");
+            List<Object> params = new ArrayList<>();
+            if (fromDate != null) {
+                salesAgg.append(" AND o.").append(timeCol).append(" >= ?");
+                params.add(Timestamp.valueOf(fromDate.atStartOfDay()));
+            }
+            if (toDate != null) {
+                salesAgg.append(" AND o.").append(timeCol).append(" < ?");
+                params.add(Timestamp.valueOf(toDate.plusDays(1).atStartOfDay()));
+            }
+            salesAgg.append(" GROUP BY ").append(pidExpr);
+
+            String partA =
+                    "SELECT COALESCE(s.sale_name, p.product_name, CONCAT('Món#', p.product_id)) AS product_name, " +
+                            "COALESCE(s.qty,0) AS qty, COALESCE(s.revenue,0) AS revenue " +
+                            "FROM products p LEFT JOIN (" + salesAgg + ") s ON s.product_id = p.product_id";
+
+            String partB =
+                    "SELECT COALESCE(s.sale_name, CASE WHEN s.product_id=0 THEN 'Món (không rõ)' ELSE CONCAT('Món#', s.product_id) END) AS product_name, " +
+                            "COALESCE(s.qty,0) AS qty, COALESCE(s.revenue,0) AS revenue " +
+                            "FROM (" + salesAgg + ") s LEFT JOIN products p ON p.product_id = s.product_id " +
+                            "WHERE p.product_id IS NULL";
+
+            String sql = "SELECT product_name, qty, revenue FROM (" + partA + " UNION ALL " + partB + ") x " +
+                    "ORDER BY qty DESC, revenue DESC, product_name ASC";
+
+            try (PreparedStatement ps = c.prepareStatement(sql)) {
+                // params are duplicated because salesAgg is used twice (partA + partB)
+                int idx = 1;
+                for (int pass = 0; pass < 2; pass++) {
+                    for (Object p : params) {
+                        if (p instanceof Timestamp) ps.setTimestamp(idx++, (Timestamp) p);
+                        else ps.setObject(idx++, p);
+                    }
                 }
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
@@ -332,10 +535,54 @@ public class DashboardDAO {
             if (!byName.isEmpty()) {
                 list.addAll(byName.values());
             }
+
+            // Ensure sorted by revenue desc after merging name-only groups
+            list.sort(Comparator.comparingDouble((CustomerStatRow r) -> r.revenue).reversed());
         } catch (SQLException ex) {
             ex.printStackTrace();
         }
         return list;
+    }
+
+    public static int sumSoldQuantity(LocalDate fromDate, LocalDate toDate) {
+        try (Connection c = DBConnection.getConnection()) {
+            if (!hasTable(c, "order_details") || !hasTable(c, "orders")) return -1;
+
+            String qtyCol = null;
+            if (hasColumn(c, "order_details", "quantity")) qtyCol = "quantity";
+            else if (hasColumn(c, "order_details", "qty")) qtyCol = "qty";
+            if (qtyCol == null) return -1;
+
+            String timeCol = hasColumn(c, "orders", "order_time") ? "order_time" : (hasColumn(c, "orders", "created_at") ? "created_at" : null);
+            if (timeCol == null) timeCol = "order_id";
+
+            StringBuilder sql = new StringBuilder(
+                    "SELECT COALESCE(SUM(d." + qtyCol + "),0) AS total_qty " +
+                            "FROM order_details d JOIN orders o ON o.order_id = d.order_id WHERE 1=1");
+            List<Object> params = new ArrayList<>();
+            if (fromDate != null) {
+                sql.append(" AND o.").append(timeCol).append(" >= ?");
+                params.add(Timestamp.valueOf(fromDate.atStartOfDay()));
+            }
+            if (toDate != null) {
+                sql.append(" AND o.").append(timeCol).append(" < ?");
+                params.add(Timestamp.valueOf(toDate.plusDays(1).atStartOfDay()));
+            }
+
+            try (PreparedStatement ps = c.prepareStatement(sql.toString())) {
+                for (int i = 0; i < params.size(); i++) {
+                    Object p = params.get(i);
+                    if (p instanceof Timestamp) ps.setTimestamp(i + 1, (Timestamp) p);
+                    else ps.setObject(i + 1, p);
+                }
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) return rs.getInt("total_qty");
+                }
+            }
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+        }
+        return -1;
     }
 
     public static List<SupplierImportStatRow> findSupplierImportStats(LocalDate fromDate, LocalDate toDate) {
@@ -348,16 +595,22 @@ public class DashboardDAO {
 
             // Count number of import receipts/transactions, not number of distinct days
             String txIdCol = hasColumn(c, "inventory_transactions", "transaction_id") ? "transaction_id" : null;
-            String importCountExpr = txIdCol != null ? ("COUNT(DISTINCT t." + txIdCol + ")") : "COUNT(*)";
 
             boolean hasSupplierId = hasColumn(c, "inventory_transactions", "supplier_id") && hasTable(c, "suppliers");
 
             if (hasSupplierId) {
+                boolean suppliersHasActive = hasColumn(c, "suppliers", "is_active");
+                String supplierActiveWhere = suppliersHasActive ? " WHERE s.is_active = 1" : "";
+
+                String importCountExprLeft = txIdCol != null
+                        ? ("COUNT(DISTINCT t." + txIdCol + ")")
+                        : "COUNT(t.total_cost)";
+
                 StringBuilder sql = new StringBuilder(
-                        "SELECT COALESCE(t.supplier_id,0) AS supplier_id, COALESCE(s.supplier_name, CONCAT('NCC#', t.supplier_id)) AS supplier_name, " +
-                                importCountExpr + " AS import_count, COALESCE(SUM(t.total_cost),0) AS total_cost " +
-                                "FROM inventory_transactions t LEFT JOIN suppliers s ON s.supplier_id = t.supplier_id " +
-                                "WHERE t.transaction_type='import'");
+                        "SELECT s.supplier_id AS supplier_id, COALESCE(s.supplier_name, CONCAT('NCC#', s.supplier_id)) AS supplier_name, " +
+                                importCountExprLeft + " AS import_count, COALESCE(SUM(t.total_cost),0) AS total_cost " +
+                                "FROM suppliers s " +
+                                "LEFT JOIN inventory_transactions t ON t.supplier_id = s.supplier_id AND t.transaction_type='import'");
                 List<Object> params = new ArrayList<>();
                 if (fromDate != null) {
                     sql.append(" AND t.").append(timeCol).append(" >= ?");
@@ -367,7 +620,9 @@ public class DashboardDAO {
                     sql.append(" AND t.").append(timeCol).append(" < ?");
                     params.add(Timestamp.valueOf(toDate.plusDays(1).atStartOfDay()));
                 }
-                sql.append(" GROUP BY supplier_id, supplier_name ORDER BY total_cost DESC");
+
+                sql.append(supplierActiveWhere);
+                sql.append(" GROUP BY s.supplier_id, supplier_name ORDER BY total_cost DESC, supplier_name ASC");
 
                 try (PreparedStatement ps = c.prepareStatement(sql.toString())) {
                     for (int i = 0; i < params.size(); i++) {
@@ -432,6 +687,9 @@ public class DashboardDAO {
                 }
             }
             list.addAll(byName.values());
+            list.sort(Comparator
+                    .comparingDouble((SupplierImportStatRow r) -> r.totalCost).reversed()
+                    .thenComparing(r -> r.supplierName == null ? "" : r.supplierName, String.CASE_INSENSITIVE_ORDER));
         } catch (SQLException ex) {
             ex.printStackTrace();
         }
@@ -464,8 +722,20 @@ public class DashboardDAO {
     }
 
     private static String findTopItemName(Connection c, String timeCol, LocalDate fromDate, LocalDate toDate) {
+        String detailsNameCol = null;
+        if (hasColumn(c, "order_details", "product_name")) detailsNameCol = "product_name";
+        else if (hasColumn(c, "order_details", "item_name")) detailsNameCol = "item_name";
+        else if (hasColumn(c, "order_details", "name")) detailsNameCol = "name";
+
+        String productNameExpr;
+        if (detailsNameCol != null) {
+            productNameExpr = "COALESCE(NULLIF(d." + detailsNameCol + ", ''), p.product_name, CONCAT('Món#', d.product_id))";
+        } else {
+            productNameExpr = "COALESCE(p.product_name, CONCAT('Món#', d.product_id))";
+        }
+
         StringBuilder sql = new StringBuilder(
-                "SELECT COALESCE(p.product_name, CONCAT('Món#', d.product_id)) AS product_name, SUM(d.quantity) AS qty " +
+                "SELECT " + productNameExpr + " AS product_name, SUM(d.quantity) AS qty " +
                         "FROM order_details d JOIN orders o ON o.order_id = d.order_id " +
                         "LEFT JOIN products p ON p.product_id = d.product_id WHERE 1=1");
         List<Object> params = new ArrayList<>();
@@ -499,14 +769,62 @@ public class DashboardDAO {
         return null;
     }
 
+    public static int countNewCustomers(LocalDate fromDate, LocalDate toDate) {
+        if (fromDate == null && toDate == null) return -1;
+        try (Connection c = DBConnection.getConnection()) {
+            if (!hasTable(c, "customers")) return -1;
+
+            String timeCol = hasColumn(c, "customers", "created_at") ? "created_at"
+                    : (hasColumn(c, "customers", "created_date") ? "created_date"
+                    : (hasColumn(c, "customers", "created_on") ? "created_on"
+                    : (hasColumn(c, "customers", "register_date") ? "register_date"
+                    : (hasColumn(c, "customers", "registration_date") ? "registration_date" : null))));
+            if (timeCol == null) return -1;
+
+            StringBuilder sql = new StringBuilder("SELECT COUNT(*) AS cnt FROM customers WHERE 1=1");
+            List<Object> params = new ArrayList<>();
+            if (fromDate != null) {
+                sql.append(" AND ").append(timeCol).append(" >= ?");
+                params.add(Timestamp.valueOf(fromDate.atStartOfDay()));
+            }
+            if (toDate != null) {
+                sql.append(" AND ").append(timeCol).append(" < ?");
+                params.add(Timestamp.valueOf(toDate.plusDays(1).atStartOfDay()));
+            }
+
+            try (PreparedStatement ps = c.prepareStatement(sql.toString())) {
+                for (int i = 0; i < params.size(); i++) {
+                    Object p = params.get(i);
+                    if (p instanceof Timestamp) ps.setTimestamp(i + 1, (Timestamp) p);
+                    else ps.setObject(i + 1, p);
+                }
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) return rs.getInt("cnt");
+                }
+            }
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+        }
+        return -1;
+    }
+
     private static boolean hasColumn(Connection c, String table, String column) {
         try {
             DatabaseMetaData md = c.getMetaData();
-            try (ResultSet rs = md.getColumns(c.getCatalog(), null, table, column)) {
-                if (rs.next()) return true;
+            String cat = null;
+            try {
+                cat = c.getCatalog();
+            } catch (SQLException ignored) {
             }
-            try (ResultSet rs = md.getColumns(c.getCatalog(), null, table.toUpperCase(), column.toUpperCase())) {
-                if (rs.next()) return true;
+
+            String[] cats = new String[]{cat, null};
+            for (String catalog : cats) {
+                try (ResultSet rs = md.getColumns(catalog, null, table, column)) {
+                    if (rs.next()) return true;
+                }
+                try (ResultSet rs = md.getColumns(catalog, null, table.toUpperCase(), column.toUpperCase())) {
+                    if (rs.next()) return true;
+                }
             }
         } catch (SQLException ignored) {
         }
@@ -516,11 +834,20 @@ public class DashboardDAO {
     private static boolean hasTable(Connection c, String tableName) {
         try {
             DatabaseMetaData md = c.getMetaData();
-            try (ResultSet rs = md.getTables(c.getCatalog(), null, tableName, new String[]{"TABLE"})) {
-                if (rs.next()) return true;
+            String cat = null;
+            try {
+                cat = c.getCatalog();
+            } catch (SQLException ignored) {
             }
-            try (ResultSet rs = md.getTables(c.getCatalog(), null, tableName.toUpperCase(), new String[]{"TABLE"})) {
-                if (rs.next()) return true;
+
+            String[] cats = new String[]{cat, null};
+            for (String catalog : cats) {
+                try (ResultSet rs = md.getTables(catalog, null, tableName, new String[]{"TABLE"})) {
+                    if (rs.next()) return true;
+                }
+                try (ResultSet rs = md.getTables(catalog, null, tableName.toUpperCase(), new String[]{"TABLE"})) {
+                    if (rs.next()) return true;
+                }
             }
         } catch (SQLException ignored) {
         }
@@ -530,6 +857,26 @@ public class DashboardDAO {
     private static int countTable(Connection c, String table) {
         if (!hasTable(c, table)) return 0;
         String sql = "SELECT COUNT(*) AS cnt FROM " + table;
+        try (PreparedStatement ps = c.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            if (rs.next()) return rs.getInt("cnt");
+        } catch (SQLException ignored) {
+        }
+        return 0;
+    }
+
+    private static int countActiveSuppliers(Connection c) {
+        if (!hasTable(c, "suppliers")) return 0;
+
+        String activeCol = null;
+        if (hasColumn(c, "suppliers", "is_active")) activeCol = "is_active";
+        else if (hasColumn(c, "suppliers", "status")) activeCol = "status";
+
+        if (activeCol == null) {
+            return countTable(c, "suppliers");
+        }
+
+        String sql = "SELECT COUNT(*) AS cnt FROM suppliers WHERE " + activeCol + " = 1";
         try (PreparedStatement ps = c.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
             if (rs.next()) return rs.getInt("cnt");

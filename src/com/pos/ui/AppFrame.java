@@ -70,6 +70,7 @@ public class AppFrame extends JFrame {
 	private CardLayout tabCardLayout;
 	private OrdersManagementPanel ordersPanel;
 	private ImportHistoryManagementPanel importHistoryPanel;
+	private ImportGoodsPanel importGoodsPanel;
 	private CategoryManagementPanel categoryManagementPanel;
 	private ItemManagementPanel itemManagementPanel;
 	private RecipeManagementPanel recipeManagementPanel;
@@ -381,7 +382,8 @@ public class AppFrame extends JFrame {
 		salesPage.add(center, BorderLayout.CENTER);
 		this.tabCards.add(salesPage, "Bán hàng");
 
-		this.tabCards.add(wrapTabPage("Nhập hàng", new ImportGoodsPanel(this)), "Nhập hàng");
+		this.importGoodsPanel = new ImportGoodsPanel(this);
+		this.tabCards.add(wrapTabPage("Nhập hàng", this.importGoodsPanel), "Nhập hàng");
 		this.itemManagementPanel = new ItemManagementPanel(() -> {
 			reloadCategories();
 			refreshMenu();
@@ -397,6 +399,11 @@ public class AppFrame extends JFrame {
 		this.tabCards.add(wrapTabPage("Danh mục", this.categoryManagementPanel), "Danh mục");
 		this.ingredientManagementPanel = new IngredientManagementPanel(() -> {
 			if (recipeManagementPanel != null) recipeManagementPanel.refreshSelectedRecipe();
+			if (recipeManagementPanel != null) {
+				recipeManagementPanel.reloadIngredientsFilter();
+				recipeManagementPanel.refreshProductsList();
+			}
+			if (importGoodsPanel != null) importGoodsPanel.refreshIngredients();
 		});
 		this.tabCards.add(wrapTabPage("Nguyên liệu", this.ingredientManagementPanel), "Nguyên liệu");
 		this.recipeManagementPanel = new RecipeManagementPanel(null);
@@ -926,6 +933,8 @@ public class AppFrame extends JFrame {
 		if (tfSoLuong != null) tfSoLuong.setText("");
 		reloadCategories();
 		refreshMenu();
+		if (ordersPanel != null) ordersPanel.refreshData();
+		if (importHistoryPanel != null) importHistoryPanel.refreshData();
 	}
 
 	public void setCartFromSnapshot(List<CartItem> items) {

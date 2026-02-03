@@ -470,11 +470,20 @@ public class OrderDAO {
     private static boolean hasColumn(Connection c, String table, String column) {
         try {
             DatabaseMetaData md = c.getMetaData();
-            try (ResultSet rs = md.getColumns(c.getCatalog(), null, table, column)) {
-                if (rs.next()) return true;
+            String cat = null;
+            try {
+                cat = c.getCatalog();
+            } catch (SQLException ignored) {
             }
-            try (ResultSet rs = md.getColumns(c.getCatalog(), null, table.toUpperCase(), column.toUpperCase())) {
-                if (rs.next()) return true;
+
+            String[] cats = new String[]{cat, null};
+            for (String catalog : cats) {
+                try (ResultSet rs = md.getColumns(catalog, null, table, column)) {
+                    if (rs.next()) return true;
+                }
+                try (ResultSet rs = md.getColumns(catalog, null, table.toUpperCase(), column.toUpperCase())) {
+                    if (rs.next()) return true;
+                }
             }
         } catch (SQLException ignored) {
         }
@@ -484,11 +493,20 @@ public class OrderDAO {
     private static boolean hasTable(Connection c, String tableName) {
         try {
             DatabaseMetaData md = c.getMetaData();
-            try (ResultSet rs = md.getTables(c.getCatalog(), null, tableName, new String[]{"TABLE"})) {
-                if (rs.next()) return true;
+            String cat = null;
+            try {
+                cat = c.getCatalog();
+            } catch (SQLException ignored) {
             }
-            try (ResultSet rs = md.getTables(c.getCatalog(), null, tableName.toUpperCase(), new String[]{"TABLE"})) {
-                if (rs.next()) return true;
+
+            String[] cats = new String[]{cat, null};
+            for (String catalog : cats) {
+                try (ResultSet rs = md.getTables(catalog, null, tableName, new String[]{"TABLE"})) {
+                    if (rs.next()) return true;
+                }
+                try (ResultSet rs = md.getTables(catalog, null, tableName.toUpperCase(), new String[]{"TABLE"})) {
+                    if (rs.next()) return true;
+                }
             }
         } catch (SQLException ignored) {
         }

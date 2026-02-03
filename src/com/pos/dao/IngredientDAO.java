@@ -8,6 +8,7 @@ import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.SQLIntegrityConstraintViolationException;
 import java.sql.Statement;
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -292,14 +293,22 @@ public class IngredientDAO {
             }
             ps.setInt(1, ingredientId);
             boolean result = ps.executeUpdate() > 0;
-            if (result) {
-                reorderIds(c);
-            }
             return result;
         } catch (SQLException ex) {
+            if (isFkConstraint(ex) && supportsIsActive()) {
+                return setStatus(ingredientId, false);
+            }
             ex.printStackTrace();
             return false;
         }
+    }
+
+    private static boolean isFkConstraint(SQLException ex) {
+        if (ex == null) return false;
+        if (ex instanceof SQLIntegrityConstraintViolationException) return true;
+        if ("23000".equals(ex.getSQLState())) return true;
+        int code = ex.getErrorCode();
+        return code == 1451 || code == 1452;
     }
     
     /**

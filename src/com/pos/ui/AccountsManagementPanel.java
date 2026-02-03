@@ -30,7 +30,6 @@ public class AccountsManagementPanel extends JPanel {
     private DefaultTableModel model;
     private JTable table;
 
-    private ModernButton createBtn;
     private ModernButton changePwdBtn;
     private ModernButton deleteBtn;
 
@@ -138,18 +137,14 @@ public class AccountsManagementPanel extends JPanel {
         panel.setOpaque(false);
         panel.setBorder(new EmptyBorder(UIConstants.SPACING_SM, 0, 0, 0));
 
-        this.createBtn = new ModernButton("Tạo tài khoản", ModernButton.ButtonType.PRIMARY, ModernButton.ButtonSize.SMALL);
         this.changePwdBtn = new ModernButton("Đổi mật khẩu", ModernButton.ButtonType.SECONDARY, ModernButton.ButtonSize.SMALL);
         this.deleteBtn = new ModernButton("Xóa", ModernButton.ButtonType.DANGER, ModernButton.ButtonSize.SMALL);
-        this.createBtn.setPreferredSize(new Dimension(130, 32));
         this.changePwdBtn.setPreferredSize(new Dimension(120, 32));
         this.deleteBtn.setPreferredSize(new Dimension(80, 32));
 
-        panel.add(this.createBtn);
         panel.add(this.changePwdBtn);
         panel.add(this.deleteBtn);
 
-        this.createBtn.addActionListener(e -> createAccount());
         this.changePwdBtn.addActionListener(e -> changePassword());
         this.deleteBtn.addActionListener(e -> deleteAccount());
 
@@ -214,10 +209,9 @@ public class AccountsManagementPanel extends JPanel {
     }
 
     private void updateActionButtons() {
-        if (createBtn == null || changePwdBtn == null || deleteBtn == null) return;
+        if (changePwdBtn == null || deleteBtn == null) return;
         AccountsDAO.AccountRow r = getSelectedRow();
         if (r == null) {
-            createBtn.setEnabled(false);
             changePwdBtn.setEnabled(false);
             deleteBtn.setEnabled(false);
             return;
@@ -227,7 +221,6 @@ public class AccountsManagementPanel extends JPanel {
         boolean isAdmin = "admin".equalsIgnoreCase(un);
         boolean hasUsername = !un.isEmpty();
 
-        createBtn.setEnabled(!isAdmin && !hasUsername);
         changePwdBtn.setEnabled(!isAdmin && hasUsername);
         deleteBtn.setEnabled(!isAdmin && hasUsername);
     }

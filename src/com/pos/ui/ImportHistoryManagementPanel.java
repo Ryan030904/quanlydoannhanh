@@ -164,7 +164,7 @@ public class ImportHistoryManagementPanel extends JPanel {
         panel.setBorder(new EmptyBorder(UIConstants.SPACING_SM, 0, 0, 0));
         ModernButton viewBtn = new ModernButton("Xem chi tiet", ModernButton.ButtonType.PRIMARY, ModernButton.ButtonSize.SMALL);
         ModernButton printBtn = new ModernButton("In PDF", ModernButton.ButtonType.SECONDARY, ModernButton.ButtonSize.SMALL);
-        ModernButton exportBtn = new ModernButton("Xuat Excel", ModernButton.ButtonType.GHOST, ModernButton.ButtonSize.SMALL);
+        ModernButton exportBtn = new ModernButton("Xuat Excel", ModernButton.ButtonType.PRIMARY, ModernButton.ButtonSize.SMALL);
         viewBtn.setPreferredSize(new Dimension(110, 32));
         printBtn.setPreferredSize(new Dimension(80, 32));
         exportBtn.setPreferredSize(new Dimension(90, 32));
@@ -386,8 +386,37 @@ public class ImportHistoryManagementPanel extends JPanel {
             f = new File(f.getAbsolutePath() + ".xls");
         }
 
+        boolean isXls = f.getName().toLowerCase().endsWith(".xls");
+
         try (PrintWriter pw = new PrintWriter(new OutputStreamWriter(new FileOutputStream(f), StandardCharsets.UTF_8))) {
             pw.print('\ufeff');
+
+            if (isXls) {
+                pw.println("<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"/></head><body>");
+                pw.println("<table border='1' style='border-collapse:collapse;font-family:Segoe UI;font-size:12pt'>");
+                pw.println("<tr><td colspan='" + model.getColumnCount() + "' style='font-weight:bold;background:#E6FFFA'>" + escapeHtml("DANH SÁCH HÓA ĐƠN NHẬP") + "</td></tr>");
+
+                pw.print("<tr style='font-weight:bold'>");
+                for (int c = 0; c < model.getColumnCount(); c++) {
+                    pw.print("<td>" + escapeHtml(String.valueOf(model.getColumnName(c))) + "</td>");
+                }
+                pw.println("</tr>");
+
+                for (int r = 0; r < model.getRowCount(); r++) {
+                    pw.print("<tr>");
+                    for (int c = 0; c < model.getColumnCount(); c++) {
+                        Object v = model.getValueAt(r, c);
+                        String text = v == null ? "" : String.valueOf(v);
+                        boolean right = (c == 4);
+                        pw.print("<td" + (right ? " style='text-align:right'" : "") + ">" + escapeHtml(text) + "</td>");
+                    }
+                    pw.println("</tr>");
+                }
+                pw.println("</table></body></html>");
+
+                JOptionPane.showMessageDialog(this, "Da xuat Excel thanh cong:\n" + f.getAbsolutePath());
+                return;
+            }
 
             int colCount = model.getColumnCount();
             for (int c = 0; c < colCount; c++) {
@@ -417,6 +446,16 @@ public class ImportHistoryManagementPanel extends JPanel {
         boolean needs = t.contains(",") || t.contains("\"") || t.contains("\n") || t.contains("\r");
         if (t.contains("\"")) t = t.replace("\"", "\"\"");
         if (needs) t = "\"" + t + "\"";
+        return t;
+    }
+
+    private String escapeHtml(String s) {
+        if (s == null) return "";
+        String t = s;
+        t = t.replace("&", "&amp;");
+        t = t.replace("<", "&lt;");
+        t = t.replace(">", "&gt;");
+        t = t.replace("\"", "&quot;");
         return t;
     }
 

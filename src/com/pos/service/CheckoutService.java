@@ -10,6 +10,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -157,15 +158,49 @@ public class CheckoutService {
         if (c == null || tableName == null || tableName.trim().isEmpty()) return false;
         try {
             DatabaseMetaData md = c.getMetaData();
-            try (ResultSet rs = md.getTables(c.getCatalog(), null, tableName, new String[]{"TABLE"})) {
-                if (rs.next()) return true;
+            String cat = null;
+            try {
+                cat = c.getCatalog();
+            } catch (SQLException ignored) {
             }
-            try (ResultSet rs = md.getTables(c.getCatalog(), null, tableName.toUpperCase(), new String[]{"TABLE"})) {
-                return rs.next();
+
+            String[] cats = new String[]{cat, null};
+            for (String catalog : cats) {
+                try (ResultSet rs = md.getTables(catalog, null, tableName, new String[]{"TABLE"})) {
+                    if (rs.next()) return true;
+                }
+                try (ResultSet rs = md.getTables(catalog, null, tableName.toUpperCase(), new String[]{"TABLE"})) {
+                    if (rs.next()) return true;
+                }
             }
         } catch (SQLException ignored) {
             return false;
         }
+        return false;
+    }
+
+    private boolean hasColumn(Connection c, String table, String column) {
+        if (c == null || table == null || column == null) return false;
+        try {
+            DatabaseMetaData md = c.getMetaData();
+            String cat = null;
+            try {
+                cat = c.getCatalog();
+            } catch (SQLException ignored) {
+            }
+
+            String[] cats = new String[]{cat, null};
+            for (String catalog : cats) {
+                try (ResultSet rs = md.getColumns(catalog, null, table, column)) {
+                    if (rs.next()) return true;
+                }
+                try (ResultSet rs = md.getColumns(catalog, null, table.toUpperCase(), column.toUpperCase())) {
+                    if (rs.next()) return true;
+                }
+            }
+        } catch (SQLException ignored) {
+        }
+        return false;
     }
 
     public String checkout(int userId, String customerName, String paymentMethod, String reference, List<CartItem> cartItems)
@@ -279,17 +314,25 @@ public class CheckoutService {
 
     private int insertOrder(Connection c, String orderNumber, int userId, String customerName,
                             double subtotal, double tax, double discount, double total, String paymentMethod) throws SQLException {
-        String sql = "INSERT INTO orders (order_number, employee_id, order_type, status, subtotal, discount_amount, tax_amount, total_amount, payment_method, payment_status, notes) " +
-                "VALUES (?, ?, 'takeaway', 'completed', ?, ?, ?, ?, ?, 'paid', ?)";
+        String timeCol = hasColumn(c, "orders", "order_time") ? "order_time" : (hasColumn(c, "orders", "created_at") ? "created_at" : null);
+        String sql = "INSERT INTO orders (order_number, employee_id, order_type, status, subtotal, discount_amount, tax_amount, total_amount, payment_method, payment_status, notes" +
+                (timeCol != null ? (", " + timeCol) : "") +
+                ") VALUES (?, ?, 'takeaway', 'completed', ?, ?, ?, ?, ?, 'paid', ?" +
+                (timeCol != null ? ", ?" : "") +
+                ")";
         try (PreparedStatement ps = c.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-            ps.setString(1, orderNumber);
-            ps.setInt(2, userId);
-            ps.setDouble(3, subtotal);
-            ps.setDouble(4, discount);
-            ps.setDouble(5, tax);
-            ps.setDouble(6, total);
-            ps.setString(7, normalizePaymentMethod(paymentMethod));
-            ps.setString(8, buildNotes(customerName, null));
+            int i = 1;
+            ps.setString(i++, orderNumber);
+            ps.setInt(i++, userId);
+            ps.setDouble(i++, subtotal);
+            ps.setDouble(i++, discount);
+            ps.setDouble(i++, tax);
+            ps.setDouble(i++, total);
+            ps.setString(i++, normalizePaymentMethod(paymentMethod));
+            ps.setString(i++, buildNotes(customerName, null));
+            if (timeCol != null) {
+                ps.setTimestamp(i++, Timestamp.valueOf(LocalDateTime.now()));
+            }
             ps.executeUpdate();
             try (ResultSet keys = ps.getGeneratedKeys()) {
                 if (keys.next()) return keys.getInt(1);

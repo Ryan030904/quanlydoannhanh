@@ -541,6 +541,35 @@ public class ImportGoodsPanel extends JPanel {
         filterIngredients();
     }
 
+    public void refreshIngredients() {
+        loadIngredients();
+
+        if (detailModel != null) {
+            java.util.Set<Integer> existingIds = new java.util.HashSet<>();
+            for (Ingredient ing : allIngredients) {
+                if (ing != null) existingIds.add(ing.getId());
+            }
+
+            boolean removed = false;
+            for (int r = detailModel.getRowCount() - 1; r >= 0; r--) {
+                Object idObj = detailModel.getValueAt(r, 0);
+                int id;
+                try {
+                    id = Integer.parseInt(String.valueOf(idObj));
+                } catch (Exception ex) {
+                    id = -1;
+                }
+                if (id > 0 && !existingIds.contains(id)) {
+                    detailModel.removeRow(r);
+                    removed = true;
+                }
+            }
+            if (removed) {
+                recalcTotal();
+            }
+        }
+    }
+
     private void filterIngredients() {
         String keyword = searchIngredientField.getText() == null ? "" : searchIngredientField.getText().toLowerCase().trim();
         ingredientModel.setRowCount(0);

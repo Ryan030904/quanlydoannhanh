@@ -1,6 +1,5 @@
 package com.pos.ui;
 
-import com.pos.dao.AccountsDAO;
 import com.pos.service.PermissionService;
 import com.pos.ui.components.CardPanel;
 import com.pos.ui.components.ModernButton;
@@ -203,112 +202,16 @@ public class PermissionsManagementPanel extends JPanel {
 
         ModernButton detailBtn = new ModernButton("Xem chi tiết", ModernButton.ButtonType.PRIMARY, ModernButton.ButtonSize.SMALL);
         ModernButton editBtn = new ModernButton("Cấp quyền tab", ModernButton.ButtonType.SECONDARY, ModernButton.ButtonSize.SMALL);
-		ModernButton editUserBtn = new ModernButton("Cấp quyền TK", ModernButton.ButtonType.SECONDARY, ModernButton.ButtonSize.SMALL);
         detailBtn.setPreferredSize(new Dimension(120, 32));
         editBtn.setPreferredSize(new Dimension(130, 32));
-		editUserBtn.setPreferredSize(new Dimension(120, 32));
         panel.add(detailBtn);
         panel.add(editBtn);
-		panel.add(editUserBtn);
 
         detailBtn.addActionListener(e -> showPermissionDetail());
 		editBtn.addActionListener(e -> editPermissionTabs());
-		editUserBtn.addActionListener(e -> editUserTabs());
 
         return panel;
     }
-
-	private void editUserTabs() {
-		if (!AccountsDAO.supportsAccounts()) {
-			JOptionPane.showMessageDialog(this, "Không hỗ trợ quản lý tài khoản");
-			return;
-		}
-		List<AccountsDAO.AccountRow> rows = AccountsDAO.findAll();
-		List<String> usernames = new ArrayList<>();
-		for (AccountsDAO.AccountRow r : rows) {
-			if (r == null) continue;
-			String un = r.getUsername();
-			if (un == null) continue;
-			String u = un.trim();
-			if (u.isEmpty()) continue;
-			if (u.equalsIgnoreCase("admin")) continue;
-			usernames.add(u);
-		}
-		if (usernames.isEmpty()) {
-			JOptionPane.showMessageDialog(this, "Chưa có tài khoản nào để cấp quyền");
-			return;
-		}
-
-		JComboBox<String> userCombo = new JComboBox<>(usernames.toArray(new String[0]));
-		userCombo.setPreferredSize(new Dimension(240, 28));
-		int pick = JOptionPane.showConfirmDialog(this, userCombo, "Chọn tài khoản", JOptionPane.OK_CANCEL_OPTION);
-		if (pick != JOptionPane.OK_OPTION) return;
-		String username = userCombo.getSelectedItem() == null ? null : String.valueOf(userCombo.getSelectedItem()).trim();
-		if (username == null || username.isEmpty()) return;
-
-		Set<String> allowed = PermissionService.loadTabsForUsername(username, "PQ2");
-		JPanel grid = new JPanel(new GridLayout(0, 2, 10, 8));
-		grid.setBorder(new EmptyBorder(10, 10, 10, 10));
-		List<JCheckBox> boxes = new ArrayList<>();
-		for (String tab : ALL_TABS) {
-			JCheckBox cb = new JCheckBox(tab);
-			cb.setSelected(allowed.contains(tab));
-			boxes.add(cb);
-			grid.add(cb);
-		}
-
-		JScrollPane scroll = new JScrollPane(grid);
-		scroll.setPreferredSize(new Dimension(520, 360));
-		int res = JOptionPane.showConfirmDialog(this, scroll, "Cấp quyền tab cho tài khoản: " + username,
-				JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-		if (res != JOptionPane.OK_OPTION) return;
-
-		StringJoiner sj = new StringJoiner(",");
-		for (int i = 0; i < boxes.size(); i++) {
-			if (boxes.get(i).isSelected()) sj.add(ALL_TABS[i]);
-		}
-		String csv = sj.toString();
-		if (csv.trim().isEmpty()) {
-			JOptionPane.showMessageDialog(this, "Phải chọn ít nhất 1 tab");
-			return;
-		}
-
-		if (saveUserTabsToProperties(username, csv)) {
-			JOptionPane.showMessageDialog(this, "Đã lưu phân quyền. Vui lòng đăng xuất/đăng nhập lại để áp dụng.");
-			if (onDataChanged != null) onDataChanged.run();
-		}
-	}
-
-	private boolean saveUserTabsToProperties(String username, String csv) {
-		try {
-			File f = new File("permissions.properties");
-			Path path = f.toPath();
-			List<String> lines = new ArrayList<>();
-			if (f.exists() && f.isFile()) {
-				lines = Files.readAllLines(path, StandardCharsets.UTF_8);
-			}
-
-			String un = username == null ? "" : username.trim();
-			if (un.isEmpty()) return false;
-			String key = "user." + un + ".tabs=";
-			boolean updated = false;
-			for (int i = 0; i < lines.size(); i++) {
-				String line = lines.get(i);
-				if (line != null && line.startsWith(key)) {
-					lines.set(i, key + csv);
-					updated = true;
-					break;
-				}
-			}
-			if (!updated) lines.add(key + csv);
-			Files.write(path, lines, StandardCharsets.UTF_8);
-			return true;
-		} catch (Exception ex) {
-			ex.printStackTrace();
-			JOptionPane.showMessageDialog(this, "Không thể lưu permissions.properties", "Lỗi", JOptionPane.ERROR_MESSAGE);
-			return false;
-		}
-	}
 
 	private boolean saveTabsToProperties(String code, String csv) {
 		try {

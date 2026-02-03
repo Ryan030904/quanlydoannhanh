@@ -8,7 +8,9 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class RecipeDAO {
     public static class RecipeLine {
@@ -67,6 +69,26 @@ public class RecipeDAO {
 		}
         return list;
     }
+
+	public static Set<Integer> findProductIdsUsingIngredient(int ingredientId) {
+		Set<Integer> ids = new HashSet<>();
+		if (ingredientId <= 0) return ids;
+		try (Connection c = DBConnection.getConnection()) {
+			String pidCol = productIdColumn(c);
+			String sql = "SELECT DISTINCT pi." + pidCol + " AS product_id FROM product_ingredients pi WHERE pi.ingredient_id = ?";
+			try (PreparedStatement ps = c.prepareStatement(sql)) {
+				ps.setInt(1, ingredientId);
+				try (ResultSet rs = ps.executeQuery()) {
+					while (rs.next()) {
+						ids.add(rs.getInt("product_id"));
+					}
+				}
+			}
+		} catch (SQLException ex) {
+			ex.printStackTrace();
+		}
+		return ids;
+	}
 
     public static boolean upsertLine(int productId, int ingredientId, double quantityNeeded) {
 		try (Connection c = DBConnection.getConnection()) {

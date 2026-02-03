@@ -4,6 +4,7 @@ import com.pos.db.DBConnection;
 import com.pos.model.Category;
 
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -99,39 +100,39 @@ public class CategoryDAO {
     }
 
     public static boolean isInUse(int categoryId) {
-        String sql = "SELECT 1 FROM products WHERE category_id=? LIMIT 1";
-        try (Connection c = DBConnection.getConnection();
-             PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setInt(1, categoryId);
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next();
+        if (categoryId <= 0) return false;
+        try (Connection c = DBConnection.getConnection()) {
+            if (tableHasColumn(c, "products", "category_id")) {
+                String sql = "SELECT 1 FROM products WHERE category_id=? LIMIT 1";
+                try (PreparedStatement ps = c.prepareStatement(sql)) {
+                    ps.setInt(1, categoryId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        return rs.next();
+                    }
+                }
+            }
+            if (tableHasColumn(c, "items", "category_id")) {
+                String sql = "SELECT 1 FROM items WHERE category_id=? LIMIT 1";
+                try (PreparedStatement ps = c.prepareStatement(sql)) {
+                    ps.setInt(1, categoryId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        return rs.next();
+                    }
+                }
             }
         } catch (SQLException ex) {
             ex.printStackTrace();
-            return false;
         }
+        return false;
     }
 
-    public static boolean delete(int id) {
-        String detachSql = "UPDATE products SET category_id=NULL WHERE category_id=?";
-        String deleteSql = "DELETE FROM categories WHERE category_id=?";
-        try (Connection c = DBConnection.getConnection()) {
-            c.setAutoCommit(false);
-
-            try (PreparedStatement ps = c.prepareStatement(detachSql)) {
-                ps.setInt(1, id);
-                ps.executeUpdate();
-            }
-
-            int affected;
-            try (PreparedStatement ps = c.prepareStatement(deleteSql)) {
-                ps.setInt(1, id);
-                affected = ps.executeUpdate();
-            }
-
-            c.commit();
-            c.setAutoCommit(true);
-            return affected > 0;
+    public static boolean delete(int categoryId) {
+        if (categoryId <= 0) return false;
+        String sql = "DELETE FROM categories WHERE category_id=?";
+        try (Connection c = DBConnection.getConnection();
+             PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setInt(1, categoryId);
+            return ps.executeUpdate() > 0;
         } catch (SQLException ex) {
             ex.printStackTrace();
             return false;
@@ -139,7 +140,8 @@ public class CategoryDAO {
     }
 
     public static int countInactive() {
-        String sql = "SELECT COUNT(*) FROM categories WHERE is_active=0";
+        if (!hasColumnSafe("categories", "is_active")) return 0;
+        String sql = "SELECT COUNT(*) FROM categories WHERE is_active = 0";
         try (Connection c = DBConnection.getConnection();
              PreparedStatement ps = c.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
@@ -151,26 +153,44 @@ public class CategoryDAO {
     }
 
     public static int deleteInactive() {
-        String detachSql = "UPDATE products SET category_id=NULL WHERE category_id IN (SELECT category_id FROM categories WHERE is_active=0)";
-        String deleteSql = "DELETE FROM categories WHERE is_active=0";
-        try (Connection c = DBConnection.getConnection()) {
-            c.setAutoCommit(false);
-
-            try (PreparedStatement ps = c.prepareStatement(detachSql)) {
-                ps.executeUpdate();
-            }
-
-            int deleted;
-            try (PreparedStatement ps = c.prepareStatement(deleteSql)) {
-                deleted = ps.executeUpdate();
-            }
-
-            c.commit();
-            c.setAutoCommit(true);
-            return deleted;
+        if (!hasColumnSafe("categories", "is_active")) return 0;
+        String sql = "DELETE FROM categories WHERE is_active = 0";
+        try (Connection c = DBConnection.getConnection();
+             PreparedStatement ps = c.prepareStatement(sql)) {
+            return ps.executeUpdate();
         } catch (SQLException ex) {
             ex.printStackTrace();
             return 0;
         }
+    }
+
+    private static boolean hasColumnSafe(String table, String column) {
+        try (Connection c = DBConnection.getConnection()) {
+            return tableHasColumn(c, table, column);
+        } catch (SQLException ex) {
+            return false;
+        }
+    }
+
+    private static boolean tableHasColumn(Connection c, String table, String column) {
+        if (c == null) return false;
+        try {
+            DatabaseMetaData md = c.getMetaData();
+            String catalog = c.getCatalog();
+            try (ResultSet rs = md.getColumns(catalog, null, table, column)) {
+                if (rs.next()) return true;
+            }
+            try (ResultSet rs = md.getColumns(catalog, null, table.toUpperCase(), column)) {
+                if (rs.next()) return true;
+            }
+            try (ResultSet rs = md.getColumns(catalog, null, table, column.toUpperCase())) {
+                if (rs.next()) return true;
+            }
+            try (ResultSet rs = md.getColumns(catalog, null, table.toUpperCase(), column.toUpperCase())) {
+                if (rs.next()) return true;
+            }
+        } catch (SQLException ignored) {
+        }
+        return false;
     }
 }

@@ -58,6 +58,18 @@ public class InventoryDAO {
 		return "product_id";
 	}
 
+	private static String productIdExpr(Connection c, String alias) {
+		if (alias == null || alias.trim().isEmpty()) alias = "pi";
+		boolean hasProductId = c != null && hasColumn(c, "product_ingredients", "product_id");
+		boolean hasItemId = c != null && hasColumn(c, "product_ingredients", "item_id");
+		if (hasProductId && hasItemId) {
+			return "COALESCE(NULLIF(" + alias + ".product_id,0), NULLIF(" + alias + ".item_id,0))";
+		}
+		if (hasProductId) return alias + ".product_id";
+		if (hasItemId) return alias + ".item_id";
+		return alias + ".product_id";
+	}
+
 	public static List<IngredientShortage> findIngredientShortagesForCart(Connection c, List<CartItem> cartItems) throws SQLException {
 		List<IngredientShortage> out = new ArrayList<>();
 		if (c == null) throw new SQLException("Connection is null");
@@ -104,7 +116,7 @@ public class InventoryDAO {
 				"SELECT pi.ingredient_id, i.ingredient_name, i.unit, i.current_stock, " +
 				"SUM(pi.quantity_needed * t.qty) AS needed " +
 				"FROM product_ingredients pi " +
-				"JOIN (" + derived + ") t ON t.product_id = pi." + productIdColumn(c) + " " +
+				"JOIN (" + derived + ") t ON t.product_id = " + productIdExpr(c, "pi") + " " +
 				"JOIN ingredients i ON i.ingredient_id = pi.ingredient_id " +
 				"GROUP BY pi.ingredient_id, i.ingredient_name, i.unit, i.current_stock " +
 				"HAVING i.current_stock < SUM(pi.quantity_needed * t.qty)";
@@ -135,7 +147,7 @@ public class InventoryDAO {
 
 	private static boolean hasAnyRecipeLine(Connection c, int productId) {
 		if (c == null || productId <= 0) return false;
-		String sql = "SELECT 1 FROM product_ingredients WHERE " + productIdColumn(c) + " = ? LIMIT 1";
+		String sql = "SELECT 1 FROM product_ingredients pi WHERE " + productIdExpr(c, "pi") + " = ? LIMIT 1";
 		try (PreparedStatement ps = c.prepareStatement(sql)) {
 			ps.setInt(1, productId);
 			try (ResultSet rs = ps.executeQuery()) {
@@ -145,15 +157,15 @@ public class InventoryDAO {
 			return false;
 		}
 	}
-    public static Map<Integer, Integer> getAllQuantities() {
-        Map<Integer, Integer> map = new HashMap<>();
-        try (Connection c = DBConnection.getConnection();
+    	public static Map<Integer, Integer> getAllQuantities() {
+		Map<Integer, Integer> map = new HashMap<>();
+		try (Connection c = DBConnection.getConnection();
 			 PreparedStatement ps = c.prepareStatement(
 					 "SELECT p.product_id AS item_id, " +
 						 "CASE WHEN COUNT(pi.ingredient_id) = 0 THEN 0 " +
 						 "ELSE FLOOR(MIN(i.current_stock / pi.quantity_needed)) END AS quantity " +
 						 "FROM products p " +
-						 "LEFT JOIN product_ingredients pi ON pi." + productIdColumn(c) + " = p.product_id " +
+						 "LEFT JOIN product_ingredients pi ON " + productIdExpr(c, "pi") + " = p.product_id " +
 						 "LEFT JOIN ingredients i ON i.ingredient_id = pi.ingredient_id " +
 						 "GROUP BY p.product_id"
 			 );
@@ -167,14 +179,14 @@ public class InventoryDAO {
         return map;
     }
 
-    public static int getQuantity(int itemId) {
-        try (Connection c = DBConnection.getConnection();
+    	public static int getQuantity(int itemId) {
+		try (Connection c = DBConnection.getConnection();
 			 PreparedStatement ps = c.prepareStatement(
 					 "SELECT p.product_id, " +
 						 "CASE WHEN COUNT(pi.ingredient_id) = 0 THEN 0 " +
 						 "ELSE FLOOR(MIN(i.current_stock / pi.quantity_needed)) END AS quantity " +
 						 "FROM products p " +
-						 "LEFT JOIN product_ingredients pi ON pi." + productIdColumn(c) + " = p.product_id " +
+						 "LEFT JOIN product_ingredients pi ON " + productIdExpr(c, "pi") + " = p.product_id " +
 						 "LEFT JOIN ingredients i ON i.ingredient_id = pi.ingredient_id " +
 						 "WHERE p.product_id = ? " +
 						 "GROUP BY p.product_id"
@@ -189,18 +201,18 @@ public class InventoryDAO {
         return 0;
     }
 
-    public static boolean deductIfEnough(Connection c, int itemId, int quantity) throws SQLException {
-        if (c == null) throw new SQLException("Connection is null");
-        if (quantity <= 0) return true;
+    	public static boolean deductIfEnough(Connection c, int itemId, int quantity) throws SQLException {
+		if (c == null) throw new SQLException("Connection is null");
+		if (quantity <= 0) return true;
 
-        // Deduct ingredient stock based on recipe (product_ingredients)
-        String recipeSql = "SELECT ingredient_id, quantity_needed FROM product_ingredients WHERE " + productIdColumn(c) + " = ?";
-        try (PreparedStatement psRecipe = c.prepareStatement(recipeSql)) {
-            psRecipe.setInt(1, itemId);
-            try (ResultSet rs = psRecipe.executeQuery()) {
-                boolean hasAny = false;
-                while (rs.next()) {
-                    hasAny = true;
+		// Deduct ingredient stock based on recipe (product_ingredients)
+		String recipeSql = "SELECT ingredient_id, quantity_needed FROM product_ingredients pi WHERE " + productIdExpr(c, "pi") + " = ?";
+		try (PreparedStatement psRecipe = c.prepareStatement(recipeSql)) {
+			psRecipe.setInt(1, itemId);
+			try (ResultSet rs = psRecipe.executeQuery()) {
+				boolean hasAny = false;
+				while (rs.next()) {
+					hasAny = true;
                     int ingredientId = rs.getInt("ingredient_id");
                     double perUnit = rs.getDouble("quantity_needed");
                     double needed = perUnit * quantity;

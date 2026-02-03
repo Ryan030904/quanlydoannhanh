@@ -33,6 +33,7 @@ public class RecipeManagementPanel extends JPanel {
 
     private JComboBox<Category> categoryCombo;
     private JTextField searchField;
+    private JComboBox<Object> ingredientFilterCombo;
 
     private JLabel selectedProductLabel;
 
@@ -72,6 +73,7 @@ public class RecipeManagementPanel extends JPanel {
         add(centerPanel, BorderLayout.CENTER);
 
         reloadCategories();
+        reloadIngredientsFilter();
         refreshProducts();
     }
 
@@ -81,33 +83,73 @@ public class RecipeManagementPanel extends JPanel {
         panel.setRadius(UIConstants.RADIUS_LG);
         panel.setBorder(new EmptyBorder(UIConstants.SPACING_MD, UIConstants.SPACING_MD, UIConstants.SPACING_MD, UIConstants.SPACING_MD));
 
-        JPanel top = new JPanel(new WrapLayout(FlowLayout.LEFT, UIConstants.SPACING_SM, UIConstants.SPACING_XS));
+        JPanel top = new JPanel(new GridBagLayout());
         top.setOpaque(false);
         top.setBorder(new EmptyBorder(0, 0, UIConstants.SPACING_SM, 0));
+
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(0, 0, UIConstants.SPACING_XS, UIConstants.SPACING_SM);
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.fill = GridBagConstraints.NONE;
 
         JLabel catLabel = new JLabel("Danh mục:");
         catLabel.setFont(UIConstants.FONT_BODY);
         catLabel.setForeground(UIConstants.NEUTRAL_700);
-        top.add(catLabel);
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        top.add(catLabel, gbc);
 
         categoryCombo = new JComboBox<>();
         categoryCombo.setFont(UIConstants.FONT_BODY);
-        categoryCombo.setPreferredSize(new Dimension(180, UIConstants.INPUT_HEIGHT_SM));
-        top.add(categoryCombo);
+        categoryCombo.setPreferredSize(new Dimension(160, UIConstants.INPUT_HEIGHT_SM));
+        gbc.gridx = 1;
+        gbc.gridy = 0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 0.5;
+        top.add(categoryCombo, gbc);
 
         JLabel searchLabel = new JLabel("Tìm món:");
         searchLabel.setFont(UIConstants.FONT_BODY);
         searchLabel.setForeground(UIConstants.NEUTRAL_700);
-        top.add(searchLabel);
+        gbc.gridx = 2;
+        gbc.gridy = 0;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        top.add(searchLabel, gbc);
 
         searchField = new JTextField();
         searchField.setFont(UIConstants.FONT_BODY);
-        searchField.setPreferredSize(new Dimension(180, UIConstants.INPUT_HEIGHT_SM));
+        searchField.setPreferredSize(new Dimension(200, UIConstants.INPUT_HEIGHT_SM));
         searchField.setBorder(BorderFactory.createCompoundBorder(
             BorderFactory.createLineBorder(UIConstants.NEUTRAL_300, 1, true),
             new EmptyBorder(6, 10, 6, 10)
         ));
-        top.add(searchField);
+        gbc.gridx = 3;
+        gbc.gridy = 0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        top.add(searchField, gbc);
+
+        JLabel ingFilterLabel = new JLabel("Lọc theo nguyên liệu:");
+        ingFilterLabel.setFont(UIConstants.FONT_BODY);
+        ingFilterLabel.setForeground(UIConstants.NEUTRAL_700);
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        gbc.insets = new Insets(0, 0, 0, UIConstants.SPACING_SM);
+        top.add(ingFilterLabel, gbc);
+
+        ingredientFilterCombo = new JComboBox<>();
+        ingredientFilterCombo.setFont(UIConstants.FONT_BODY);
+        ingredientFilterCombo.setPreferredSize(new Dimension(200, UIConstants.INPUT_HEIGHT_SM));
+        gbc.gridx = 1;
+        gbc.gridy = 1;
+        gbc.gridwidth = 3;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        top.add(ingredientFilterCombo, gbc);
+        gbc.gridwidth = 1;
 
         panel.add(top, BorderLayout.NORTH);
 
@@ -134,12 +176,43 @@ public class RecipeManagementPanel extends JPanel {
             public void keyReleased(java.awt.event.KeyEvent e) { refreshProducts(); }
         });
 
+        ingredientFilterCombo.addActionListener(e -> refreshProducts());
+
         productTable.getSelectionModel().addListSelectionListener(e -> {
             if (e.getValueIsAdjusting()) return;
             onProductSelected();
         });
 
         return panel;
+    }
+
+    public void reloadIngredientsFilter() {
+        if (ingredientFilterCombo == null) return;
+        Integer selectedId = null;
+        Object selected = ingredientFilterCombo == null ? null : ingredientFilterCombo.getSelectedItem();
+        if (selected instanceof Ingredient) {
+            selectedId = ((Ingredient) selected).getId();
+        }
+
+        DefaultComboBoxModel<Object> m = new DefaultComboBoxModel<>();
+        m.addElement("-- Tất cả nguyên liệu --");
+        List<Ingredient> ingredients = IngredientDAO.findByFilter(null, null, false, false);
+        for (Ingredient ing : ingredients) {
+            if (ing != null) m.addElement(ing);
+        }
+        ingredientFilterCombo.setModel(m);
+        ingredientFilterCombo.setMaximumRowCount(20);
+
+        if (selectedId != null) {
+            for (int i = 0; i < ingredientFilterCombo.getItemCount(); i++) {
+                Object o = ingredientFilterCombo.getItemAt(i);
+                if (o instanceof Ingredient && ((Ingredient) o).getId() == selectedId) {
+                    ingredientFilterCombo.setSelectedIndex(i);
+                    return;
+                }
+            }
+        }
+        ingredientFilterCombo.setSelectedIndex(0);
     }
 
     private JPanel buildRightRecipe() {
@@ -210,6 +283,10 @@ public class RecipeManagementPanel extends JPanel {
         refreshProducts();
     }
 
+    public void refreshProductsList() {
+        refreshProducts();
+    }
+
     public void refreshSelectedRecipe() {
         if (selectedProductId == null || selectedProductId <= 0) return;
         loadRecipe(selectedProductId);
@@ -227,7 +304,21 @@ public class RecipeManagementPanel extends JPanel {
         }
 
         List<Item> items = ItemDAO.findByFilterAdmin(keyword, categoryId, false);
+
+        int ingredientId = 0;
+        Object ingSel = ingredientFilterCombo == null ? null : ingredientFilterCombo.getSelectedItem();
+        if (ingSel instanceof Ingredient) {
+            ingredientId = ((Ingredient) ingSel).getId();
+        }
+
+        java.util.Set<Integer> allowedIds = null;
+        if (ingredientId > 0) {
+            allowedIds = RecipeDAO.findProductIdsUsingIngredient(ingredientId);
+        }
         for (Item it : items) {
+            if (allowedIds != null && (it == null || !allowedIds.contains(it.getId()))) {
+                continue;
+            }
             Category cat = categoryMap.get(it.getCategoryId());
             if (cat == null) cat = new Category(it.getCategoryId(), String.valueOf(it.getCategoryId()));
             productModel.addRow(new Object[]{
@@ -293,17 +384,14 @@ public class RecipeManagementPanel extends JPanel {
             return;
         }
 
-        List<Ingredient> ingredients = IngredientDAO.findAll();
+        List<Ingredient> ingredients = IngredientDAO.findByFilter(null, null, false, false);
         if (ingredients.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Không có nguyên liệu (ingredients)");
             return;
         }
 
-        Object selected = JOptionPane.showInputDialog(this, "Chọn nguyên liệu", "Nguyên liệu",
-                JOptionPane.PLAIN_MESSAGE, null, ingredients.toArray(), ingredients.get(0));
-        if (!(selected instanceof Ingredient)) return;
-
-        Ingredient ing = (Ingredient) selected;
+        Ingredient ing = showIngredientPickerDialog(ingredients);
+        if (ing == null) return;
         int ingId = ing.getId();
         String qtyStr = JOptionPane.showInputDialog(this, "Nhập lượng dùng cho món (vd: 1, 0.5)", "1");
         if (qtyStr == null) return;
@@ -328,6 +416,80 @@ public class RecipeManagementPanel extends JPanel {
         }
 
         recipeModel.addRow(new Object[]{ingId, ing.getName(), ing.getUnit(), qty});
+    }
+
+    private Ingredient showIngredientPickerDialog(List<Ingredient> ingredients) {
+        if (ingredients == null || ingredients.isEmpty()) return null;
+
+        DefaultListModel<Ingredient> listModel = new DefaultListModel<>();
+        for (Ingredient ing : ingredients) {
+            if (ing != null) listModel.addElement(ing);
+        }
+
+        JList<Ingredient> list = new JList<>(listModel);
+        list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        list.setVisibleRowCount(10);
+        list.setFont(UIConstants.FONT_BODY);
+        list.setSelectedIndex(0);
+
+        JTextField search = new JTextField();
+        search.setFont(UIConstants.FONT_BODY);
+        search.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(UIConstants.NEUTRAL_300, 1, true),
+            new EmptyBorder(6, 10, 6, 10)
+        ));
+
+        search.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            private void apply() {
+                String kw = search.getText() == null ? "" : search.getText().trim().toLowerCase();
+                listModel.clear();
+                for (Ingredient ing : ingredients) {
+                    if (ing == null) continue;
+                    if (kw.isEmpty()) {
+                        listModel.addElement(ing);
+                    } else {
+                        String name = ing.getName() == null ? "" : ing.getName().toLowerCase();
+                        String id = String.valueOf(ing.getId());
+                        if (name.contains(kw) || id.contains(kw)) {
+                            listModel.addElement(ing);
+                        }
+                    }
+                }
+                if (!listModel.isEmpty()) list.setSelectedIndex(0);
+            }
+
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { apply(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { apply(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { apply(); }
+        });
+
+        JScrollPane scroll = new JScrollPane(list);
+        scroll.setBorder(BorderFactory.createLineBorder(UIConstants.NEUTRAL_200));
+        scroll.getViewport().setBackground(Color.WHITE);
+
+        JPanel content = new JPanel(new BorderLayout(UIConstants.SPACING_SM, UIConstants.SPACING_SM));
+        content.setBorder(new EmptyBorder(10, 10, 10, 10));
+        content.add(search, BorderLayout.NORTH);
+        content.add(scroll, BorderLayout.CENTER);
+
+        JOptionPane optionPane = new JOptionPane(content, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
+        JDialog dialog = optionPane.createDialog(this, "Nguyên liệu");
+        dialog.setResizable(true);
+
+        list.addMouseListener(new java.awt.event.MouseAdapter() {
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    optionPane.setValue(JOptionPane.OK_OPTION);
+                    dialog.setVisible(false);
+                }
+            }
+        });
+
+        dialog.setVisible(true);
+
+        Object v = optionPane.getValue();
+        if (!(v instanceof Integer) || ((Integer) v) != JOptionPane.OK_OPTION) return null;
+        return list.getSelectedValue();
     }
 
     private void removeSelectedLines() {
