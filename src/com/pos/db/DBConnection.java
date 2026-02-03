@@ -6,7 +6,7 @@ import java.sql.SQLException;
 
 public class DBConnection {
 	// Update these constants if your MySQL credentials are different
-	private static final String URL = "jdbc:mysql://localhost:3306/pos_db?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC";
+	private static final String URL = "jdbc:mysql://127.0.0.1:3306/quanlybandoannhanh?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true";
 	private static final String USER = "root";
 	private static final String PASSWORD = "";
 

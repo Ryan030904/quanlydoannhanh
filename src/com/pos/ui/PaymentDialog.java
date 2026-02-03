@@ -5,6 +5,8 @@ import com.pos.model.CartItem;
 import com.pos.service.CheckoutException;
 import com.pos.service.CheckoutService;
 import com.pos.util.CurrencyUtil;
+import com.pos.ui.components.ModernButton;
+import com.pos.ui.theme.UIConstants;
 
 import javax.imageio.ImageIO;
 import javax.swing.*;
@@ -29,28 +31,35 @@ public class PaymentDialog extends JDialog {
 
     public PaymentDialog(AppFrame parent, List<CartItem> cartItems) {
         super(parent, "Thanh toán", true);
-        setSize(520, 360);
+        setSize(540, 380);
         setLocationRelativeTo(parent);
 
         double total = 0;
         for (CartItem ci : cartItems) total += ci.getLineTotal();
         amount = Math.max(0, Math.round(total));
 
-        JPanel root = new JPanel(new BorderLayout(10, 10));
-        root.setBorder(new EmptyBorder(12, 12, 12, 12));
+        JPanel root = new JPanel(new BorderLayout(UIConstants.SPACING_MD, UIConstants.SPACING_MD));
+        root.setBorder(new EmptyBorder(UIConstants.SPACING_LG, UIConstants.SPACING_LG, UIConstants.SPACING_LG, UIConstants.SPACING_LG));
+        root.setBackground(Color.WHITE);
         setContentPane(root);
 
+        // Header
+        JPanel header = new JPanel(new BorderLayout());
+        header.setOpaque(false);
         JLabel title = new JLabel("Xác nhận thanh toán");
-        title.setFont(new Font("Segoe UI", Font.BOLD, 16));
-        root.add(title, BorderLayout.NORTH);
+        title.setFont(UIConstants.FONT_HEADING_3);
+        title.setForeground(UIConstants.PRIMARY_700);
+        header.add(title, BorderLayout.WEST);
+        
+        JLabel totalLabel = new JLabel(CurrencyUtil.format(total));
+        totalLabel.setFont(UIConstants.FONT_HEADING_2);
+        totalLabel.setForeground(UIConstants.SUCCESS);
+        header.add(totalLabel, BorderLayout.EAST);
+        root.add(header, BorderLayout.NORTH);
 
         JPanel form = new JPanel();
         form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
-
-        JLabel totalLabel = new JLabel("Tổng tiền: " + CurrencyUtil.formatUSDAsVND(total));
-        totalLabel.setFont(new Font("Segoe UI", Font.BOLD, 15));
-        form.add(totalLabel);
-        form.add(Box.createRigidArea(new Dimension(0, 10)));
+        form.setOpaque(false);
 
         customerName = new JTextField();
         method = new JComboBox<>(new String[]{"Cash", "BankTransfer", "Other"});
@@ -60,40 +69,53 @@ public class PaymentDialog extends JDialog {
         accountName = new JTextField();
         qrPreview = new JLabel("QR sẽ hiển thị ở đây", SwingConstants.CENTER);
         qrPreview.setOpaque(true);
-        qrPreview.setBackground(new Color(245, 247, 249));
+        qrPreview.setBackground(UIConstants.NEUTRAL_100);
         qrPreview.setPreferredSize(new Dimension(220, 220));
-        qrPanel = new JPanel(new BorderLayout(8, 8));
+        qrPanel = new JPanel(new BorderLayout(UIConstants.SPACING_SM, UIConstants.SPACING_SM));
+        qrPanel.setOpaque(false);
 
-        form.add(new JLabel("Tên khách hàng (tùy chọn):"));
+        // Style fields
+        styleTextField(customerName);
+        styleTextField(reference);
+        styleTextField(bankCode);
+        styleTextField(accountNo);
+        styleTextField(accountName);
+        method.setFont(UIConstants.FONT_BODY);
+
+        form.add(createFormLabel("Tên khách hàng (tùy chọn):"));
         form.add(customerName);
-        form.add(Box.createRigidArea(new Dimension(0, 8)));
+        form.add(Box.createRigidArea(new Dimension(0, UIConstants.SPACING_SM)));
 
-        form.add(new JLabel("Phương thức:"));
+        form.add(createFormLabel("Phương thức:"));
         form.add(method);
-        form.add(Box.createRigidArea(new Dimension(0, 8)));
+        form.add(Box.createRigidArea(new Dimension(0, UIConstants.SPACING_SM)));
 
-        form.add(new JLabel("Mã tham chiếu / Ghi chú thanh toán:"));
+        form.add(createFormLabel("Mã tham chiếu / Ghi chú thanh toán:"));
         form.add(reference);
 
-        JPanel bankForm = new JPanel(new GridLayout(3, 2, 8, 8));
-        bankForm.add(new JLabel("Bank code (VD: VCB, ACB, MB...):"));
+        JPanel bankForm = new JPanel(new GridLayout(3, 2, UIConstants.SPACING_SM, UIConstants.SPACING_SM));
+        bankForm.setOpaque(false);
+        bankForm.add(createFormLabel("Bank code (VCB, ACB, MB...):"));
         bankForm.add(bankCode);
-        bankForm.add(new JLabel("Số tài khoản:"));
+        bankForm.add(createFormLabel("Số tài khoản:"));
         bankForm.add(accountNo);
-        bankForm.add(new JLabel("Tên chủ tài khoản:"));
+        bankForm.add(createFormLabel("Tên chủ TK:"));
         bankForm.add(accountName);
 
         qrPanel.add(bankForm, BorderLayout.NORTH);
         qrPanel.add(qrPreview, BorderLayout.CENTER);
         qrPanel.setVisible(false);
-        form.add(Box.createRigidArea(new Dimension(0, 10)));
+        form.add(Box.createRigidArea(new Dimension(0, UIConstants.SPACING_MD)));
         form.add(qrPanel);
 
         root.add(form, BorderLayout.CENTER);
 
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton paidBtn = new JButton("Thanh toán thành công");
-        JButton cancelBtn = new JButton("Hủy");
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, UIConstants.SPACING_SM, 0));
+        actions.setOpaque(false);
+        ModernButton cancelBtn = new ModernButton("Hủy", ModernButton.ButtonType.SECONDARY, ModernButton.ButtonSize.MEDIUM);
+        ModernButton paidBtn = new ModernButton("Thanh toán thành công", ModernButton.ButtonType.SUCCESS, ModernButton.ButtonSize.MEDIUM);
+        cancelBtn.setPreferredSize(new Dimension(100, UIConstants.BUTTON_HEIGHT));
+        paidBtn.setPreferredSize(new Dimension(180, UIConstants.BUTTON_HEIGHT));
         actions.add(cancelBtn);
         actions.add(paidBtn);
         root.add(actions, BorderLayout.SOUTH);
@@ -195,8 +217,23 @@ public class PaymentDialog extends JDialog {
     }
 
     private void packToFit() {
-        int h = qrPanel.isVisible() ? 560 : 360;
-        setSize(520, h);
+        int h = qrPanel.isVisible() ? 580 : 380;
+        setSize(540, h);
         setLocationRelativeTo(getOwner());
+    }
+
+    private JLabel createFormLabel(String text) {
+        JLabel l = new JLabel(text);
+        l.setFont(UIConstants.FONT_BODY);
+        l.setForeground(UIConstants.NEUTRAL_700);
+        return l;
+    }
+
+    private void styleTextField(JTextField field) {
+        field.setFont(UIConstants.FONT_BODY);
+        field.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(UIConstants.NEUTRAL_300, 1, true),
+            new EmptyBorder(8, 10, 8, 10)
+        ));
     }
 }

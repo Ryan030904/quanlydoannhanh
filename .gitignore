@@ -59,3 +59,14 @@ Thumbs.db
 # Bin directory (compiled Java classes)
 bin/
 
+
+.venv/
+
+lib/**
+!lib/
+!lib/**/
+!lib/**/*.jar
+
+
+
+

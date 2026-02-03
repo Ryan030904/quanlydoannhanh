@@ -1,17 +1,24 @@
 package com.pos.ui;
 
 import com.pos.Session;
-import com.pos.dao.InventoryDAO;
+import com.pos.dao.CustomerDAO;
+import com.pos.dao.OrderDAO;
+import com.pos.dao.PromotionDAO;
 import com.pos.model.CartItem;
+import com.pos.model.Customer;
 import com.pos.model.Item;
+import com.pos.model.Promotion;
 import com.pos.service.CheckoutException;
 import com.pos.service.CheckoutService;
 import com.pos.util.CurrencyUtil;
+import com.pos.util.PaymentConfig;
+import com.pos.util.VietQRBanks;
+import com.pos.ui.theme.UIConstants;
+import com.pos.ui.components.*;
 
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import javax.swing.border.LineBorder;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.awt.event.KeyAdapter;
@@ -19,52 +26,66 @@ import java.awt.event.KeyEvent;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 
+/**
+ * Màn hình thanh toán đơn giản với 2 phương thức: Tiền mặt & QR VietQR
+ */
 public class PaymentFrame extends JFrame {
+    
     private final AppFrame parent;
     private final Map<Integer, CartItem> cart = new LinkedHashMap<>();
-    private Map<Integer, Integer> stockByItemId = new LinkedHashMap<>();
-
+    private Promotion appliedPromotion;
+    private String generatedOrderNumber;
+    
+    // Left panel - Order info
     private JPanel itemsPanel;
     private JLabel subtotalLabel;
-    private JLabel taxAmountLabel;
     private JLabel discountAmountLabel;
     private JLabel totalPayLabel;
-
-    private JTextField taxPercentField;
     private JTextField discountField;
-
-    private JRadioButton cashRadio;
-    private JRadioButton transferRadio;
-    private JRadioButton ewalletRadio;
-
-    private JPanel cashPanel;
+    
+    // Payment method selection
+    private JToggleButton cashBtn;
+    private JToggleButton qrBtn;
+    private JPanel paymentDetailsPanel;
+    private CardLayout paymentCardLayout;
+    
+    // Cash panel
     private JTextField cashReceivedField;
     private JLabel changeLabel;
-
-    private JPanel qrPanel;
-    private JTextField bankCodeField;
+    
+    // QR panel
+    private JComboBox<String> bankCombo;
     private JTextField accountNoField;
     private JTextField accountNameField;
     private JLabel qrPreview;
-
-    private JTextField referenceField;
-
+    
+    // Customer info (dùng chung cho cả 2 phương thức)
+    private JTextField customerNameField;
+    private JTextField customerPhoneField;
+	private boolean syncingCustomerFields = false;
+    
+    // Quick cash buttons values
+    private static final long[] QUICK_CASH = {50000, 100000, 200000, 500000, 1000000, 2000000};
+    
     public PaymentFrame(AppFrame parent, List<CartItem> cartItems) {
         this.parent = parent;
-        setTitle("Thanh toán");
+        this.generatedOrderNumber = generateOrderNumber();
+        
+        setTitle("Thanh toán đơn hàng");
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-        setSize(1100, 720);
+        setSize(1050, 800);
         setLocationRelativeTo(parent);
-
-        if (this.parent != null) {
-            this.parent.setVisible(false);
-        }
-
+        setResizable(false);
+        
+        // Copy cart items
         if (cartItems != null) {
             for (CartItem ci : cartItems) {
                 if (ci != null && ci.getItem() != null) {
@@ -72,453 +93,745 @@ public class PaymentFrame extends JFrame {
                 }
             }
         }
-
-        stockByItemId = InventoryDAO.getAllQuantities();
-
+        
+        // Root panel
         JPanel root = new JPanel(new BorderLayout(12, 12));
-        root.setBorder(new EmptyBorder(10, 10, 10, 10));
-        root.setBackground(new Color(245, 247, 249));
+        root.setBorder(new EmptyBorder(16, 16, 16, 16));
+        root.setBackground(UIConstants.BG_SECONDARY);
         setContentPane(root);
-
-        JPanel left = buildLeftOrderPanel();
-        JPanel right = buildRightPaymentPanel();
-
-        root.add(left, BorderLayout.CENTER);
-        root.add(right, BorderLayout.EAST);
-
+        
+        // Header
+        JPanel header = createHeader();
+        root.add(header, BorderLayout.NORTH);
+        
+        // Main content: Left (order) + Right (payment)
+        JPanel mainContent = new JPanel(new BorderLayout(16, 0));
+        mainContent.setOpaque(false);
+        
+        JPanel leftPanel = createOrderPanel();
+        JPanel rightPanel = createPaymentPanel();
+        
+        mainContent.add(leftPanel, BorderLayout.CENTER);
+        mainContent.add(rightPanel, BorderLayout.EAST);
+        
+        root.add(mainContent, BorderLayout.CENTER);
+        
+        // Footer buttons
+        JPanel footer = createFooter();
+        root.add(footer, BorderLayout.SOUTH);
+        
+        // Initialize
         renderItems();
         recalcTotals();
-        updatePaymentMode();
-
-        addWindowListener(new java.awt.event.WindowAdapter() {
-            @Override
-            public void windowClosed(java.awt.event.WindowEvent e) {
-                if (PaymentFrame.this.parent != null) PaymentFrame.this.parent.setVisible(true);
-            }
-        });
-
+        showCashPanel();
+        
+        // Window listener - không cần ẩn/hiện parent nữa
+        
         setVisible(true);
     }
-
-    private JPanel buildLeftOrderPanel() {
-        JPanel panel = new JPanel(new BorderLayout(8, 8));
-        panel.setBackground(Color.WHITE);
-        panel.setBorder(new EmptyBorder(12, 12, 12, 12));
-
-        JLabel title = new JLabel("Thông tin đơn hàng");
-        title.setFont(new Font("Segoe UI", Font.BOLD, 16));
+    
+    private JPanel createHeader() {
+        JPanel header = new JPanel(new BorderLayout());
+        header.setOpaque(false);
+        header.setBorder(new EmptyBorder(0, 0, 12, 0));
+        
+        JLabel title = new JLabel("THANH TOÁN ĐƠN HÀNG");
+        title.setFont(UIConstants.FONT_HEADING_2);
+        title.setForeground(UIConstants.PRIMARY_700);
+        
+        JLabel orderNoLabel = new JLabel("Mã đơn: " + generatedOrderNumber);
+        orderNoLabel.setFont(UIConstants.FONT_BODY_BOLD);
+        orderNoLabel.setForeground(UIConstants.NEUTRAL_600);
+        
+        header.add(title, BorderLayout.WEST);
+        header.add(orderNoLabel, BorderLayout.EAST);
+        
+        return header;
+    }
+    
+    private JPanel createOrderPanel() {
+        CardPanel panel = new CardPanel(new BorderLayout(8, 8));
+        panel.setShadowSize(2);
+        panel.setRadius(UIConstants.RADIUS_LG);
+        panel.setBorder(new EmptyBorder(16, 16, 16, 16));
+        
+        JLabel title = new JLabel("Chi tiết đơn hàng");
+        title.setFont(UIConstants.FONT_HEADING_3);
+        title.setForeground(UIConstants.PRIMARY_700);
         panel.add(title, BorderLayout.NORTH);
-
+        
+        // Items list
         itemsPanel = new JPanel();
         itemsPanel.setOpaque(false);
         itemsPanel.setLayout(new BoxLayout(itemsPanel, BoxLayout.Y_AXIS));
-
+        
         JScrollPane scroll = new JScrollPane(itemsPanel);
-        scroll.setBorder(new LineBorder(new Color(230, 235, 236)));
+        scroll.setBorder(BorderFactory.createLineBorder(UIConstants.NEUTRAL_200));
+        scroll.getViewport().setBackground(Color.WHITE);
+        scroll.setPreferredSize(new Dimension(0, 300));
         panel.add(scroll, BorderLayout.CENTER);
-
+        
+        // Summary panel
+        JPanel summary = new JPanel();
+        summary.setOpaque(false);
+        summary.setLayout(new BoxLayout(summary, BoxLayout.Y_AXIS));
+        summary.setBorder(new EmptyBorder(12, 0, 0, 0));
+        
+        subtotalLabel = new JLabel();
+        subtotalLabel.setFont(UIConstants.FONT_BODY);
+        
+        discountAmountLabel = new JLabel();
+        discountAmountLabel.setFont(UIConstants.FONT_BODY);
+        discountAmountLabel.setForeground(UIConstants.SUCCESS_DARK);
+        
+        totalPayLabel = new JLabel();
+        totalPayLabel.setFont(UIConstants.FONT_HEADING_2);
+        totalPayLabel.setForeground(UIConstants.PRIMARY_700);
+        
+        // Discount input row
+        JPanel discountRow = new JPanel(new BorderLayout(8, 0));
+        discountRow.setOpaque(false);
+        discountRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+        discountField = new JTextField();
+        discountField.setFont(UIConstants.FONT_BODY);
+        discountField.setPreferredSize(new Dimension(100, 28));
+        
+        ModernButton applyDiscountBtn = new ModernButton("Ap dung", ModernButton.ButtonType.SECONDARY, ModernButton.ButtonSize.SMALL);
+        applyDiscountBtn.setPreferredSize(new Dimension(70, 28));
+        
+        JPanel discountInputPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        discountInputPanel.setOpaque(false);
+        discountInputPanel.add(discountField);
+        discountInputPanel.add(applyDiscountBtn);
+        
+        discountRow.add(new JLabel("Ma giam gia:"), BorderLayout.WEST);
+        discountRow.add(discountInputPanel, BorderLayout.EAST);
+        
+        applyDiscountBtn.addActionListener(e -> applyDiscountCode());
+        
+        summary.add(createSummaryRow("Tổng tiền hàng:", subtotalLabel));
+        summary.add(Box.createRigidArea(new Dimension(0, 6)));
+        summary.add(discountRow);
+        summary.add(Box.createRigidArea(new Dimension(0, 6)));
+        summary.add(createSummaryRow("Giảm giá:", discountAmountLabel));
+        summary.add(Box.createRigidArea(new Dimension(0, 10)));
+        summary.add(new JSeparator());
+        summary.add(Box.createRigidArea(new Dimension(0, 10)));
+        summary.add(createSummaryRow("TỔNG THANH TOÁN:", totalPayLabel));
+        
+        panel.add(summary, BorderLayout.SOUTH);
+        
         return panel;
     }
 
-    private JPanel buildRightPaymentPanel() {
-        JPanel panel = new JPanel();
-        panel.setPreferredSize(new Dimension(360, 0));
-        panel.setLayout(new BorderLayout(8, 8));
-        panel.setBackground(Color.WHITE);
-        panel.setBorder(new EmptyBorder(12, 12, 12, 12));
-
-        JLabel title = new JLabel("Thông tin thanh toán");
-        title.setFont(new Font("Segoe UI", Font.BOLD, 16));
+	private void syncCustomerText(JTextField src, JTextField dst) {
+		if (syncingCustomerFields) return;
+		if (src == null || dst == null) return;
+		String s = src.getText();
+		String d = dst.getText();
+		if (s == null) s = "";
+		if (d == null) d = "";
+		if (d.equals(s)) return;
+		final String text = s;
+		syncingCustomerFields = true;
+		SwingUtilities.invokeLater(() -> {
+			try {
+				dst.setText(text);
+			} finally {
+				syncingCustomerFields = false;
+			}
+		});
+	}
+    
+    private JPanel createSummaryRow(String label, JLabel valueLabel) {
+        JPanel row = new JPanel(new BorderLayout());
+        row.setOpaque(false);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+        
+        JLabel left = new JLabel(label);
+        left.setFont(UIConstants.FONT_BODY);
+        
+        valueLabel.setHorizontalAlignment(SwingConstants.RIGHT);
+        
+        row.add(left, BorderLayout.WEST);
+        row.add(valueLabel, BorderLayout.EAST);
+        
+        return row;
+    }
+    
+    private JPanel createPaymentPanel() {
+        CardPanel panel = new CardPanel(new BorderLayout(8, 12));
+        panel.setShadowSize(2);
+        panel.setRadius(UIConstants.RADIUS_LG);
+        panel.setBorder(new EmptyBorder(16, 16, 16, 16));
+        panel.setPreferredSize(new Dimension(460, 0));
+        
+        JLabel title = new JLabel("Phương thức thanh toán");
+        title.setFont(UIConstants.FONT_HEADING_3);
+        title.setForeground(UIConstants.PRIMARY_700);
         panel.add(title, BorderLayout.NORTH);
-
-        JPanel form = new JPanel();
-        form.setOpaque(false);
-        form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
-
-        subtotalLabel = new JLabel();
-        taxAmountLabel = new JLabel();
-        discountAmountLabel = new JLabel();
-        totalPayLabel = new JLabel();
-        totalPayLabel.setFont(new Font("Segoe UI", Font.BOLD, 16));
-
-        JPanel taxRow = new JPanel(new BorderLayout(8, 0));
-        taxRow.setOpaque(false);
-        taxPercentField = new JTextField("0");
-        setCompactFieldWidth(taxPercentField);
-        taxRow.add(new JLabel("Thuế/Phí (%):"), BorderLayout.WEST);
-        taxRow.add(taxPercentField, BorderLayout.EAST);
-
-        JPanel discountRow = new JPanel(new BorderLayout(8, 0));
-        discountRow.setOpaque(false);
-        discountField = new JTextField();
-        discountRow.add(new JLabel("Giảm giá (mã hoặc %):"), BorderLayout.WEST);
-        discountRow.add(discountField, BorderLayout.EAST);
-
-        form.add(rowLabel("Tổng tiền hàng:", subtotalLabel));
-        form.add(Box.createRigidArea(new Dimension(0, 6)));
-        form.add(taxRow);
-        form.add(Box.createRigidArea(new Dimension(0, 6)));
-        form.add(rowLabel("Thuế/Phí:", taxAmountLabel));
-        form.add(Box.createRigidArea(new Dimension(0, 10)));
-        form.add(discountRow);
-        form.add(Box.createRigidArea(new Dimension(0, 6)));
-        form.add(rowLabel("Giảm giá:", discountAmountLabel));
-        form.add(Box.createRigidArea(new Dimension(0, 10)));
-        form.add(rowLabel("Tổng cần thanh toán:", totalPayLabel));
-        form.add(Box.createRigidArea(new Dimension(0, 12)));
-
-        JLabel pmTitle = new JLabel("Phương thức thanh toán:");
-        pmTitle.setFont(new Font("Segoe UI", Font.BOLD, 13));
-        form.add(pmTitle);
-        form.add(Box.createRigidArea(new Dimension(0, 6)));
-
-        cashRadio = new JRadioButton("Tiền mặt");
-        transferRadio = new JRadioButton("Chuyển khoản");
-        ewalletRadio = new JRadioButton("Ví điện tử");
-        ButtonGroup g = new ButtonGroup();
-        g.add(cashRadio);
-        g.add(transferRadio);
-        g.add(ewalletRadio);
-        cashRadio.setSelected(true);
-
-        JPanel pmRow = new JPanel(new GridLayout(3, 1, 0, 6));
-        pmRow.setOpaque(false);
-        pmRow.add(cashRadio);
-        pmRow.add(transferRadio);
-        pmRow.add(ewalletRadio);
-        form.add(pmRow);
-        form.add(Box.createRigidArea(new Dimension(0, 10)));
-
-        cashPanel = new JPanel();
-        cashPanel.setOpaque(false);
-        cashPanel.setLayout(new BoxLayout(cashPanel, BoxLayout.Y_AXIS));
+        
+        // Center content
+        JPanel content = new JPanel(new BorderLayout(0, 12));
+        content.setOpaque(false);
+        
+        // Payment method buttons
+        JPanel methodPanel = new JPanel(new GridLayout(1, 2, 12, 0));
+        methodPanel.setOpaque(false);
+        methodPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 60));
+        
+        cashBtn = createMethodButton("TIỀN MẶT", true);
+        qrBtn = createMethodButton("QR VIETQR", false);
+        
+        ButtonGroup group = new ButtonGroup();
+        group.add(cashBtn);
+        group.add(qrBtn);
+        
+        methodPanel.add(cashBtn);
+        methodPanel.add(qrBtn);
+        
+        content.add(methodPanel, BorderLayout.NORTH);
+        
+        // Payment details card layout
+        paymentCardLayout = new CardLayout();
+        paymentDetailsPanel = new JPanel(paymentCardLayout);
+        paymentDetailsPanel.setOpaque(false);
+        
+        paymentDetailsPanel.add(createCashPanel(), "cash");
+        paymentDetailsPanel.add(createQRPanel(), "qr");
+        
+        content.add(paymentDetailsPanel, BorderLayout.CENTER);
+        
+        panel.add(content, BorderLayout.CENTER);
+        
+        // Listeners
+        cashBtn.addActionListener(e -> showCashPanel());
+        qrBtn.addActionListener(e -> showQRPanel());
+        
+        return panel;
+    }
+    
+    private JToggleButton createMethodButton(String text, boolean selected) {
+        JToggleButton btn = new JToggleButton(text);
+        btn.setFont(UIConstants.FONT_BODY_BOLD);
+        btn.setPreferredSize(new Dimension(130, 35));
+        btn.setFocusPainted(false);
+        btn.setSelected(selected);
+        
+        if (selected) {
+            btn.setBackground(UIConstants.PRIMARY_500);
+            btn.setForeground(Color.WHITE);
+        } else {
+            btn.setBackground(UIConstants.NEUTRAL_100);
+            btn.setForeground(UIConstants.NEUTRAL_700);
+        }
+        
+        btn.addChangeListener(e -> {
+            if (btn.isSelected()) {
+                btn.setBackground(UIConstants.PRIMARY_500);
+                btn.setForeground(Color.WHITE);
+            } else {
+                btn.setBackground(UIConstants.NEUTRAL_100);
+                btn.setForeground(UIConstants.NEUTRAL_700);
+            }
+        });
+        
+        return btn;
+    }
+    
+    private JPanel createCashPanel() {
+        JPanel panel = new JPanel();
+        panel.setOpaque(false);
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setBorder(new EmptyBorder(16, 0, 0, 0));
+        
+        // Customer info section
+        JPanel customerPanel = new JPanel(new GridLayout(2, 2, 8, 6));
+        customerPanel.setOpaque(false);
+        customerPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 70));
+        
+        JLabel nameLabel = new JLabel("Tên khách hàng:");
+        nameLabel.setFont(UIConstants.FONT_BODY);
+        customerNameField = new JTextField();
+        customerNameField.setFont(UIConstants.FONT_BODY);
+        
+        JLabel phoneLabel = new JLabel("Số điện thoại:");
+        phoneLabel.setFont(UIConstants.FONT_BODY);
+        customerPhoneField = new JTextField();
+        customerPhoneField.setFont(UIConstants.FONT_BODY);
+        
+        customerPanel.add(nameLabel);
+        customerPanel.add(customerNameField);
+        customerPanel.add(phoneLabel);
+        customerPanel.add(customerPhoneField);
+        
+        panel.add(customerPanel);
+        panel.add(Box.createRigidArea(new Dimension(0, 12)));
+        
+        // Cash received input
+        JPanel inputRow = new JPanel(new BorderLayout(8, 0));
+        inputRow.setOpaque(false);
+        inputRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
+        
+        JLabel lbl = new JLabel("Tiền khách đưa:");
+        lbl.setFont(UIConstants.FONT_BODY_BOLD);
+        
         cashReceivedField = new JTextField();
-        changeLabel = new JLabel();
-        cashPanel.add(new JLabel("Tiền khách đưa:"));
-        cashPanel.add(cashReceivedField);
-        cashPanel.add(Box.createRigidArea(new Dimension(0, 6)));
-        cashPanel.add(rowLabel("Tiền thừa:", changeLabel));
-        form.add(cashPanel);
-
-        qrPanel = new JPanel();
-        qrPanel.setOpaque(false);
-        qrPanel.setLayout(new BoxLayout(qrPanel, BoxLayout.Y_AXIS));
-        bankCodeField = new JTextField("VCB");
-        accountNoField = new JTextField();
-        accountNameField = new JTextField();
-        qrPreview = new JLabel("QR sẽ hiển thị ở đây", SwingConstants.CENTER);
-        qrPreview.setOpaque(true);
-        qrPreview.setBackground(new Color(245, 247, 249));
-        qrPreview.setPreferredSize(new Dimension(240, 240));
-        JPanel bankForm = new JPanel(new GridLayout(3, 2, 8, 6));
-        bankForm.setOpaque(false);
-        bankForm.add(new JLabel("Bank code:"));
-        bankForm.add(bankCodeField);
-        bankForm.add(new JLabel("Số tài khoản:"));
-        bankForm.add(accountNoField);
-        bankForm.add(new JLabel("Tên chủ TK:"));
-        bankForm.add(accountNameField);
-        qrPanel.add(bankForm);
-        qrPanel.add(Box.createRigidArea(new Dimension(0, 8)));
-        qrPanel.add(qrPreview);
-        form.add(Box.createRigidArea(new Dimension(0, 10)));
-        form.add(qrPanel);
-
-        form.add(Box.createRigidArea(new Dimension(0, 10)));
-        form.add(new JLabel("Mã tham chiếu / ghi chú:"));
-        referenceField = new JTextField();
-        form.add(referenceField);
-
-        panel.add(form, BorderLayout.CENTER);
-
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        actions.setOpaque(false);
-        JButton backBtn = new JButton("Quay lại đơn hàng");
-        JButton cancelBtn = new JButton("Hủy đơn");
-        JButton confirmBtn = new JButton("Xác nhận thanh toán");
-        confirmBtn.setBackground(new Color(10, 140, 160));
-        confirmBtn.setForeground(Color.WHITE);
-        actions.add(backBtn);
-        actions.add(cancelBtn);
-        actions.add(confirmBtn);
-        panel.add(actions, BorderLayout.SOUTH);
-
-        backBtn.addActionListener(e -> {
-            syncBackToParent();
-            dispose();
-        });
-
-        cancelBtn.addActionListener(e -> {
-            int ok = JOptionPane.showConfirmDialog(this, "Bạn có chắc muốn hủy đơn?", "Xác nhận", JOptionPane.YES_NO_OPTION);
-            if (ok == JOptionPane.YES_OPTION) {
-                if (parent != null) parent.clearCartAfterCheckout();
-                dispose();
-            }
-        });
-
-        cashRadio.addActionListener(e -> updatePaymentMode());
-        transferRadio.addActionListener(e -> updatePaymentMode());
-        ewalletRadio.addActionListener(e -> updatePaymentMode());
-
-        cashReceivedField.addActionListener(e -> recalcTotals());
-        taxPercentField.addActionListener(e -> recalcTotals());
-        discountField.addActionListener(e -> recalcTotals());
-        referenceField.addActionListener(e -> updateQr());
-        bankCodeField.addActionListener(e -> updateQr());
-        accountNoField.addActionListener(e -> updateQr());
-        accountNameField.addActionListener(e -> updateQr());
-
-        taxPercentField.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyReleased(KeyEvent e) {
+        cashReceivedField.setFont(new Font("SansSerif", Font.BOLD, 18));
+        cashReceivedField.setHorizontalAlignment(JTextField.RIGHT);
+        cashReceivedField.setPreferredSize(new Dimension(160, 36));
+        
+        inputRow.add(lbl, BorderLayout.WEST);
+        inputRow.add(cashReceivedField, BorderLayout.EAST);
+        
+        panel.add(inputRow);
+        panel.add(Box.createRigidArea(new Dimension(0, 12)));
+        
+        // Quick cash buttons
+        JLabel quickLabel = new JLabel("Chọn nhanh:");
+        quickLabel.setFont(UIConstants.FONT_BODY);
+        quickLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(quickLabel);
+        panel.add(Box.createRigidArea(new Dimension(0, 8)));
+        
+        JPanel quickPanel = new JPanel(new GridLayout(2, 4, 8, 8));
+        quickPanel.setOpaque(false);
+        quickPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 80));
+        
+        for (long val : QUICK_CASH) {
+            JButton qBtn = new JButton(formatQuickCash(val));
+            qBtn.setFont(UIConstants.FONT_BODY_BOLD);
+            qBtn.setBackground(UIConstants.NEUTRAL_100);
+            qBtn.setFocusPainted(false);
+            qBtn.addActionListener(e -> {
+                cashReceivedField.setText(String.valueOf(val));
                 recalcTotals();
-            }
+            });
+            quickPanel.add(qBtn);
+        }
+        
+        // "Đủ tiền" button
+        JButton exactBtn = new JButton("Đủ tiền");
+        exactBtn.setFont(UIConstants.FONT_BODY_BOLD);
+        exactBtn.setBackground(UIConstants.SUCCESS);
+        exactBtn.setForeground(Color.WHITE);
+        exactBtn.setFocusPainted(false);
+        exactBtn.addActionListener(e -> {
+            double total = getTotalPay();
+            cashReceivedField.setText(String.valueOf(Math.round(total)));
+            recalcTotals();
         });
-        discountField.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyReleased(KeyEvent e) {
-                recalcTotals();
-            }
+        quickPanel.add(exactBtn);
+        
+        // Clear button
+        JButton clearBtn = new JButton("Xóa");
+        clearBtn.setFont(UIConstants.FONT_BODY_BOLD);
+        clearBtn.setBackground(UIConstants.NEUTRAL_300);
+        clearBtn.setFocusPainted(false);
+        clearBtn.addActionListener(e -> {
+            cashReceivedField.setText("");
+            recalcTotals();
         });
+        quickPanel.add(clearBtn);
+        
+        panel.add(quickPanel);
+        panel.add(Box.createRigidArea(new Dimension(0, 16)));
+        
+        // Change display
+        JPanel changeRow = new JPanel(new BorderLayout());
+        changeRow.setOpaque(false);
+        changeRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 50));
+        changeRow.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(UIConstants.SUCCESS, 2),
+            new EmptyBorder(10, 12, 10, 12)
+        ));
+        changeRow.setBackground(new Color(232, 245, 233));
+        
+        JLabel changeLbl = new JLabel("Tiền thừa:");
+        changeLbl.setFont(UIConstants.FONT_HEADING_3);
+        
+        changeLabel = new JLabel("0 đ");
+        changeLabel.setFont(new Font("SansSerif", Font.BOLD, 22));
+        changeLabel.setForeground(UIConstants.SUCCESS_DARK);
+        changeLabel.setHorizontalAlignment(SwingConstants.RIGHT);
+        
+        changeRow.add(changeLbl, BorderLayout.WEST);
+        changeRow.add(changeLabel, BorderLayout.EAST);
+        
+        panel.add(changeRow);
+        panel.add(Box.createVerticalGlue());
+        
+        // Listeners
         cashReceivedField.addKeyListener(new KeyAdapter() {
             @Override
             public void keyReleased(KeyEvent e) {
                 recalcTotals();
             }
         });
-        referenceField.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyReleased(KeyEvent e) {
-                updateQr();
-            }
-        });
-
-        bankCodeField.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyReleased(KeyEvent e) {
-                updateQr();
-            }
-        });
-        accountNoField.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyReleased(KeyEvent e) {
-                updateQr();
-            }
-        });
-        accountNameField.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyReleased(KeyEvent e) {
-                updateQr();
-            }
-        });
-
-        confirmBtn.addActionListener(e -> doCheckout());
-
+        
         return panel;
     }
-
-    private JPanel rowLabel(String left, JLabel right) {
-        JPanel p = new JPanel(new BorderLayout(8, 0));
-        p.setOpaque(false);
-        p.add(new JLabel(left), BorderLayout.WEST);
-        right.setHorizontalAlignment(SwingConstants.RIGHT);
-        p.add(right, BorderLayout.EAST);
-        return p;
+    
+    private JPanel createQRPanel() {
+        JPanel panel = new JPanel();
+        panel.setOpaque(false);
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setBorder(new EmptyBorder(8, 0, 0, 0));
+        
+        // Load saved config (fixed VCB info)
+        PaymentConfig config = PaymentConfig.getInstance();
+        
+        // Hidden fields to store config values
+        bankCombo = new JComboBox<>(new String[]{config.getBankCode()});
+        bankCombo.setVisible(false);
+        accountNoField = new JTextField(config.getAccountNo());
+        accountNoField.setVisible(false);
+        accountNameField = new JTextField(config.getAccountName());
+        accountNameField.setVisible(false);
+        
+        // Bank info display (read-only)
+        JPanel infoPanel = new JPanel(new GridLayout(3, 2, 8, 4));
+        infoPanel.setOpaque(false);
+        infoPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 70));
+        
+        JLabel bankLabel = new JLabel("Ngân hàng:");
+        bankLabel.setFont(UIConstants.FONT_BODY);
+        JLabel bankValue = new JLabel(VietQRBanks.getName(config.getBankCode()));
+        bankValue.setFont(UIConstants.FONT_BODY_BOLD);
+        bankValue.setForeground(UIConstants.PRIMARY_700);
+        
+        JLabel accLabel = new JLabel("Số TK:");
+        accLabel.setFont(UIConstants.FONT_BODY);
+        JLabel accValue = new JLabel(config.getAccountNo());
+        accValue.setFont(UIConstants.FONT_BODY_BOLD);
+        accValue.setForeground(UIConstants.PRIMARY_700);
+        
+        JLabel nameLabel = new JLabel("Chủ TK:");
+        nameLabel.setFont(UIConstants.FONT_BODY);
+        JLabel nameValue = new JLabel(config.getAccountName());
+        nameValue.setFont(UIConstants.FONT_BODY_BOLD);
+        nameValue.setForeground(UIConstants.PRIMARY_700);
+        
+        infoPanel.add(bankLabel);
+        infoPanel.add(bankValue);
+        infoPanel.add(accLabel);
+        infoPanel.add(accValue);
+        infoPanel.add(nameLabel);
+        infoPanel.add(nameValue);
+        
+        panel.add(infoPanel);
+        panel.add(Box.createRigidArea(new Dimension(0, 8)));
+        
+        // QR Preview - larger size
+        JPanel qrContainer = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
+        qrContainer.setOpaque(false);
+        
+        qrPreview = new JLabel("Đang tải mã QR...", SwingConstants.CENTER);
+        qrPreview.setPreferredSize(new Dimension(280, 280));
+        qrPreview.setOpaque(true);
+        qrPreview.setBackground(new Color(248, 249, 250));
+        qrPreview.setBorder(BorderFactory.createLineBorder(UIConstants.NEUTRAL_300));
+        
+        qrContainer.add(qrPreview);
+        panel.add(qrContainer);
+        panel.add(Box.createRigidArea(new Dimension(0, 12)));
+        
+        // Customer info section in QR panel
+        JPanel customerQRPanel = new JPanel(new GridLayout(2, 2, 8, 6));
+        customerQRPanel.setOpaque(false);
+        customerQRPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 70));
+        
+        JLabel custNameLbl = new JLabel("Tên khách hàng:");
+        custNameLbl.setFont(UIConstants.FONT_BODY);
+        JTextField qrCustNameField = new JTextField();
+        qrCustNameField.setFont(UIConstants.FONT_BODY);
+        
+        JLabel custPhoneLbl = new JLabel("Số điện thoại:");
+        custPhoneLbl.setFont(UIConstants.FONT_BODY);
+        JTextField qrCustPhoneField = new JTextField();
+        qrCustPhoneField.setFont(UIConstants.FONT_BODY);
+        
+        customerQRPanel.add(custNameLbl);
+        customerQRPanel.add(qrCustNameField);
+        customerQRPanel.add(custPhoneLbl);
+        customerQRPanel.add(qrCustPhoneField);
+        
+        panel.add(customerQRPanel);
+        
+        // Sync customer fields between Cash and QR panels
+        qrCustNameField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+			public void insertUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(qrCustNameField, customerNameField); }
+			public void removeUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(qrCustNameField, customerNameField); }
+			public void changedUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(qrCustNameField, customerNameField); }
+        });
+        qrCustPhoneField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+			public void insertUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(qrCustPhoneField, customerPhoneField); }
+			public void removeUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(qrCustPhoneField, customerPhoneField); }
+			public void changedUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(qrCustPhoneField, customerPhoneField); }
+        });
+        customerNameField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+			public void insertUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(customerNameField, qrCustNameField); }
+		            public void removeUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(customerNameField, qrCustNameField); }
+	            public void changedUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(customerNameField, qrCustNameField); }
+        });
+        customerPhoneField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+			public void insertUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(customerPhoneField, qrCustPhoneField); }
+			public void removeUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(customerPhoneField, qrCustPhoneField); }
+			public void changedUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(customerPhoneField, qrCustPhoneField); }
+        });
+        
+        return panel;
     }
-
+    
+    private JPanel createFooter() {
+        JPanel footer = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 0));
+        footer.setOpaque(false);
+        footer.setBorder(new EmptyBorder(12, 0, 0, 0));
+        
+        JButton backBtn = new JButton("← Quay lại");
+        backBtn.setFont(UIConstants.FONT_BODY_BOLD);
+        backBtn.setPreferredSize(new Dimension(130, 40));
+        backBtn.addActionListener(e -> {
+            syncBackToParent();
+            dispose();
+        });
+        
+        JButton cancelBtn = new JButton("Hủy đơn");
+        cancelBtn.setFont(UIConstants.FONT_BODY_BOLD);
+        cancelBtn.setPreferredSize(new Dimension(130, 40));
+        cancelBtn.setBackground(UIConstants.DANGER);
+        cancelBtn.setForeground(Color.WHITE);
+        cancelBtn.addActionListener(e -> {
+            int ok = JOptionPane.showConfirmDialog(this, 
+                "Bạn có chắc muốn hủy đơn hàng này?", 
+                "Xác nhận hủy đơn", 
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE);
+            if (ok == JOptionPane.YES_OPTION) {
+                if (parent != null) parent.clearCartAfterCheckout();
+                dispose();
+            }
+        });
+        
+        JButton confirmBtn = new JButton("XÁC NHẬN THANH TOÁN");
+        confirmBtn.setFont(new Font("SansSerif", Font.BOLD, 14));
+        confirmBtn.setPreferredSize(new Dimension(220, 45));
+        confirmBtn.setBackground(UIConstants.SUCCESS);
+        confirmBtn.setForeground(Color.WHITE);
+        confirmBtn.addActionListener(e -> doCheckout());
+        
+        footer.add(backBtn);
+        footer.add(cancelBtn);
+        footer.add(confirmBtn);
+        
+        return footer;
+    }
+    
+    // ==================== Helper Methods ====================
+    
     private void renderItems() {
         itemsPanel.removeAll();
+        
         if (cart.isEmpty()) {
             JPanel empty = new JPanel(new GridBagLayout());
             empty.setOpaque(false);
-            JLabel msg = new JLabel("Chưa có món trong đơn.");
-            msg.setForeground(new Color(120, 120, 120));
+            JLabel msg = new JLabel("Chưa có món trong đơn hàng");
+            msg.setFont(UIConstants.FONT_BODY);
+            msg.setForeground(UIConstants.NEUTRAL_500);
             empty.add(msg);
             itemsPanel.add(empty);
         } else {
             for (CartItem ci : cart.values()) {
                 itemsPanel.add(buildItemRow(ci));
-                itemsPanel.add(Box.createRigidArea(new Dimension(0, 8)));
+                itemsPanel.add(Box.createRigidArea(new Dimension(0, 4)));
             }
         }
+        
         itemsPanel.revalidate();
         itemsPanel.repaint();
     }
-
+    
     private JPanel buildItemRow(CartItem ci) {
-        Item it = ci.getItem();
-        JPanel row = new JPanel(new BorderLayout(10, 10));
-        row.setBorder(new LineBorder(new Color(230, 235, 236)));
+        JPanel row = new JPanel(new BorderLayout(8, 0));
+        row.setOpaque(false);
+        row.setBorder(new EmptyBorder(8, 8, 8, 8));
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 45));
         row.setBackground(Color.WHITE);
-
-        JPanel left = new JPanel();
-        left.setOpaque(false);
-        left.setLayout(new BoxLayout(left, BoxLayout.Y_AXIS));
-        JLabel name = new JLabel(it.getName());
-        name.setFont(new Font("Segoe UI", Font.BOLD, 13));
-        JLabel unit = new JLabel("Đơn giá: " + CurrencyUtil.formatUSDAsVND(it.getPrice()));
-        unit.setForeground(new Color(90, 90, 90));
-        left.add(name);
-        left.add(Box.createRigidArea(new Dimension(0, 2)));
-        left.add(unit);
-        row.add(left, BorderLayout.WEST);
-
-        JPanel center = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
-        center.setOpaque(false);
-        JButton minus = new JButton("-");
-        JButton plus = new JButton("+");
-        JLabel qty = new JLabel(String.valueOf(ci.getQuantity()));
-        qty.setFont(new Font("Segoe UI", Font.BOLD, 13));
-        minus.setPreferredSize(new Dimension(44, 32));
-        plus.setPreferredSize(new Dimension(44, 32));
-        center.add(minus);
-        center.add(qty);
-        center.add(plus);
-        row.add(center, BorderLayout.CENTER);
-
-        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 8));
-        right.setOpaque(false);
-        JLabel lineTotal = new JLabel(CurrencyUtil.formatUSDAsVND(ci.getLineTotal()));
-        lineTotal.setFont(new Font("Segoe UI", Font.BOLD, 13));
-        JButton remove = new JButton("X");
-        remove.setForeground(new Color(180, 0, 0));
-        right.add(lineTotal);
-        right.add(remove);
-        row.add(right, BorderLayout.EAST);
-
-        int itemId = it.getId();
-        minus.addActionListener(e -> {
-            changeQty(itemId, -1);
-        });
-        plus.addActionListener(e -> {
-            changeQty(itemId, +1);
-        });
-        remove.addActionListener(e -> {
-            cart.remove(itemId);
-            renderItems();
-            recalcTotals();
-        });
-
+        
+        Item item = ci.getItem();
+        
+        JLabel nameLabel = new JLabel(item.getName());
+        nameLabel.setFont(UIConstants.FONT_BODY);
+        
+        JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 0));
+        rightPanel.setOpaque(false);
+        
+        JLabel qtyLabel = new JLabel("x" + ci.getQuantity());
+        qtyLabel.setFont(UIConstants.FONT_BODY_BOLD);
+        
+        JLabel priceLabel = new JLabel(CurrencyUtil.format(ci.getLineTotal()));
+        priceLabel.setFont(UIConstants.FONT_BODY_BOLD);
+        priceLabel.setForeground(UIConstants.PRIMARY_700);
+        
+        rightPanel.add(qtyLabel);
+        rightPanel.add(priceLabel);
+        
+        row.add(nameLabel, BorderLayout.WEST);
+        row.add(rightPanel, BorderLayout.EAST);
+        
         return row;
     }
-
-    private void changeQty(int itemId, int delta) {
-        CartItem existing = cart.get(itemId);
-        if (existing == null) return;
-        int next = existing.getQuantity() + delta;
-        if (next <= 0) {
-            cart.remove(itemId);
-        } else {
-            int stock = stockByItemId.getOrDefault(itemId, 0);
-            if (delta > 0) {
-                if (stock <= 0) {
-                    JOptionPane.showMessageDialog(this, "Món này đã hết hàng");
-                    return;
-                }
-                if (next > stock) {
-                    JOptionPane.showMessageDialog(this, "Không đủ tồn kho. Tồn hiện tại: " + stock);
-                    return;
-                }
-            }
-            existing.setQuantity(next);
-        }
-        renderItems();
-        recalcTotals();
-    }
-
+    
     private void recalcTotals() {
         double subtotal = 0;
-        for (CartItem ci : cart.values()) subtotal += ci.getLineTotal();
-
-        double taxPercent = parseDoubleSafe(taxPercentField.getText());
-        if (taxPercent < 0) taxPercent = 0;
-        double tax = subtotal * taxPercent / 100.0;
-
+        for (CartItem ci : cart.values()) {
+            subtotal += ci.getLineTotal();
+        }
+        
         double discount = computeDiscount(subtotal);
-        if (discount < 0) discount = 0;
-        if (discount > subtotal + tax) discount = subtotal + tax;
-
-        double totalPay = subtotal + tax - discount;
-
-        subtotalLabel.setText(CurrencyUtil.formatUSDAsVND(subtotal));
-        taxAmountLabel.setText(CurrencyUtil.formatUSDAsVND(tax));
-        discountAmountLabel.setText("-" + CurrencyUtil.formatUSDAsVND(discount));
-        totalPayLabel.setText(CurrencyUtil.formatUSDAsVND(totalPay));
-
-        if (cashRadio.isSelected()) {
+        double totalPay = subtotal - discount;
+        if (totalPay < 0) totalPay = 0;
+        
+        subtotalLabel.setText(CurrencyUtil.format(subtotal));
+        discountAmountLabel.setText("-" + CurrencyUtil.format(discount));
+        totalPayLabel.setText(CurrencyUtil.format(totalPay));
+        
+        // Update change
+        if (cashBtn.isSelected()) {
             double received = parseDoubleSafe(cashReceivedField.getText());
             double change = received - totalPay;
             if (change < 0) change = 0;
-            changeLabel.setText(CurrencyUtil.formatUSDAsVND(change));
-        } else {
-            changeLabel.setText(CurrencyUtil.formatUSDAsVND(0));
+            changeLabel.setText(CurrencyUtil.format(change));
         }
-
-        updateQr();
+        
+        // Update QR
+        if (qrBtn.isSelected()) {
+            updateQR();
+        }
     }
-
+    
     private double computeDiscount(double subtotal) {
-        String s = discountField.getText() == null ? "" : discountField.getText().trim();
-        if (s.isEmpty()) return 0;
-        Double percent = tryParseDouble(s);
-        if (percent != null) {
-            if (percent < 0) percent = 0.0;
-            if (percent > 100) percent = 100.0;
-            return subtotal * percent / 100.0;
+        if (appliedPromotion == null) {
+            return 0;
         }
-        if (s.equalsIgnoreCase("SALE10")) return subtotal * 0.10;
-        if (s.equalsIgnoreCase("SALE5")) return subtotal * 0.05;
-        return 0;
+        
+        // Kiểm tra điều kiện tối thiểu
+        if (subtotal < appliedPromotion.getMinOrderAmount()) {
+            return 0;
+        }
+        
+        if ("percentage".equalsIgnoreCase(appliedPromotion.getDiscountType())) {
+            return subtotal * appliedPromotion.getDiscountValue() / 100.0;
+        } else {
+            return Math.min(appliedPromotion.getDiscountValue(), subtotal);
+        }
     }
-
-    private void updatePaymentMode() {
-        cashPanel.setVisible(cashRadio.isSelected());
-        qrPanel.setVisible(transferRadio.isSelected());
-        recalcTotals();
-        revalidate();
-        repaint();
-    }
-
-    private void updateQr() {
-        if (!transferRadio.isSelected()) {
-            qrPreview.setIcon(null);
-            qrPreview.setText("QR sẽ hiển thị ở đây");
+    
+    private void applyDiscountCode() {
+        String code = discountField.getText();
+        if (code == null || code.trim().isEmpty()) {
+            appliedPromotion = null;
+            recalcTotals();
             return;
         }
-        String bank = bankCodeField.getText() == null ? "" : bankCodeField.getText().trim();
-        String acc = accountNoField.getText() == null ? "" : accountNoField.getText().trim();
-        String name = accountNameField.getText() == null ? "" : accountNameField.getText().trim();
-        if (bank.isEmpty() || acc.isEmpty()) {
-            qrPreview.setIcon(null);
-            qrPreview.setText("Nhập bank code và số tài khoản để tạo QR");
-            return;
-        }
-
+        
+        String s = code.trim();
         double subtotal = 0;
-        for (CartItem ci : cart.values()) subtotal += ci.getLineTotal();
-        double taxPercent = parseDoubleSafe(taxPercentField.getText());
-        if (taxPercent < 0) taxPercent = 0;
-        double tax = subtotal * taxPercent / 100.0;
+        for (CartItem ci : cart.values()) {
+            subtotal += ci.getLineTotal();
+        }
+        
+        // Tìm khuyến mãi theo mã
+        try {
+            Promotion found = PromotionDAO.findByCode(s);
+            
+            if (found == null) {
+                JOptionPane.showMessageDialog(this, "Ma giam gia khong ton tai hoac da het han!", "Loi", JOptionPane.ERROR_MESSAGE);
+                appliedPromotion = null;
+                recalcTotals();
+                return;
+            }
+            
+            // Kiểm tra điều kiện tối thiểu
+            if (subtotal < found.getMinOrderAmount()) {
+                JOptionPane.showMessageDialog(this, 
+                    "Don hang chua dat dieu kien toi thieu!\nYeu cau: " + CurrencyUtil.format(found.getMinOrderAmount()) + "\nDon hang hien tai: " + CurrencyUtil.format(subtotal), 
+                    "Khong du dieu kien", JOptionPane.WARNING_MESSAGE);
+                appliedPromotion = null;
+                recalcTotals();
+                return;
+            }
+            
+            // Áp dụng thành công
+            appliedPromotion = found;
+            recalcTotals();
+            
+            double discount = computeDiscount(subtotal);
+            JOptionPane.showMessageDialog(this, 
+                "Ap dung ma thanh cong!\nGiam: " + CurrencyUtil.format(discount), 
+                "Thanh cong", JOptionPane.INFORMATION_MESSAGE);
+                
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Loi khi kiem tra ma giam gia!", "Loi", JOptionPane.ERROR_MESSAGE);
+            appliedPromotion = null;
+            recalcTotals();
+        }
+    }
+    
+    private double getTotalPay() {
+        double subtotal = 0;
+        for (CartItem ci : cart.values()) {
+            subtotal += ci.getLineTotal();
+        }
         double discount = computeDiscount(subtotal);
-        double totalPay = subtotal + tax - discount;
+        double total = subtotal - discount;
+        return total < 0 ? 0 : total;
+    }
+    
+    private void showCashPanel() {
+        cashBtn.setSelected(true);
+        qrBtn.setSelected(false);
+        paymentCardLayout.show(paymentDetailsPanel, "cash");
+        recalcTotals();
+    }
+    
+    private void showQRPanel() {
+        qrBtn.setSelected(true);
+        cashBtn.setSelected(false);
+        paymentCardLayout.show(paymentDetailsPanel, "qr");
+        updateQR();
+    }
+    
+    private void updateQR() {
+        // Lấy thông tin từ config cố định
+        PaymentConfig config = PaymentConfig.getInstance();
+        String bankCode = config.getBankCode();
+        String accountNo = config.getAccountNo();
+        String accountName = config.getAccountName();
+        
+        if (bankCode.isEmpty() || accountNo.isEmpty()) {
+            qrPreview.setIcon(null);
+            qrPreview.setText("Chưa cấu hình tài khoản");
+            return;
+        }
+        
+        double totalPay = getTotalPay();
         long amount = Math.max(0, Math.round(totalPay));
-
-        String addInfo = referenceField.getText() == null ? "" : referenceField.getText().trim();
-        if (addInfo.isEmpty()) addInfo = "Thanh toan POS";
-
-        String url = buildVietQrUrl(bank, acc, name, amount, addInfo);
+        String addInfo = generatedOrderNumber;
+        
+        String url = buildVietQrUrl(bankCode, accountNo, accountName, amount, addInfo);
         qrPreview.setIcon(null);
         qrPreview.setText("Đang tải QR...");
-
+        
         new SwingWorker<ImageIcon, Void>() {
             @Override
             protected ImageIcon doInBackground() throws Exception {
                 BufferedImage bi = ImageIO.read(URI.create(url).toURL());
                 if (bi == null) return null;
-                Image scaled = bi.getScaledInstance(240, 240, Image.SCALE_SMOOTH);
+                Image scaled = bi.getScaledInstance(290, 290, Image.SCALE_SMOOTH);
                 return new ImageIcon(scaled);
             }
-
+            
             @Override
             protected void done() {
                 try {
@@ -537,11 +850,9 @@ public class PaymentFrame extends JFrame {
             }
         }.execute();
     }
-
+    
     private String buildVietQrUrl(String bank, String account, String accountName, long amount, String addInfo) {
-        String b = bank.trim();
-        String acc = account.trim();
-        String base = "https://img.vietqr.io/image/" + b + "-" + acc + "-compact2.png";
+        String base = "https://img.vietqr.io/image/" + bank + "-" + account + "-compact2.png";
         StringBuilder qs = new StringBuilder();
         qs.append("?amount=").append(amount);
         if (addInfo != null && !addInfo.trim().isEmpty()) {
@@ -552,71 +863,187 @@ public class PaymentFrame extends JFrame {
         }
         return base + qs;
     }
-
-    private void doCheckout() {
-        if (cart.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Đơn hàng đang trống");
-            return;
-        }
-
-        double subtotal = 0;
-        for (CartItem ci : cart.values()) subtotal += ci.getLineTotal();
-        double taxPercent = parseDoubleSafe(taxPercentField.getText());
-        if (taxPercent < 0) taxPercent = 0;
-        double tax = subtotal * taxPercent / 100.0;
-        double discount = computeDiscount(subtotal);
-        double totalPay = subtotal + tax - discount;
-
-        if (cashRadio.isSelected()) {
-            double received = parseDoubleSafe(cashReceivedField.getText());
-            if (received < totalPay) {
-                JOptionPane.showMessageDialog(this, "Tiền khách đưa chưa đủ");
+    
+    private void savePaymentConfig() {
+        String bankDisplay = (String) bankCombo.getSelectedItem();
+        String bankCode = VietQRBanks.extractCode(bankDisplay);
+        String accountNo = accountNoField.getText().trim();
+        String accountName = accountNameField.getText().trim();
+        
+        PaymentConfig.getInstance().update(bankCode, accountNo, accountName);
+        JOptionPane.showMessageDialog(this, 
+            "Đã lưu thông tin ngân hàng!", 
+            "Thành công", 
+            JOptionPane.INFORMATION_MESSAGE);
+    }
+    
+    private void selectBankByCode(String code) {
+        if (code == null || code.isEmpty()) return;
+        for (int i = 0; i < bankCombo.getItemCount(); i++) {
+            String item = bankCombo.getItemAt(i);
+            if (item.startsWith(code + " - ")) {
+                bankCombo.setSelectedIndex(i);
                 return;
             }
         }
-
-        String pm;
-        if (cashRadio.isSelected()) pm = "Cash";
-        else if (transferRadio.isSelected()) pm = "BankTransfer";
-        else pm = "Other";
-
+    }
+    
+    private void doCheckout() {
+        if (cart.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Đơn hàng đang trống!", "Lỗi", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        
+        double subtotal = 0;
+        for (CartItem ci : cart.values()) {
+            subtotal += ci.getLineTotal();
+        }
+        double discount = computeDiscount(subtotal);
+        double totalPay = subtotal - discount;
+        if (totalPay < 0) totalPay = 0;
+        
+        String paymentMethod;
+        
+        if (cashBtn.isSelected()) {
+            // Cash payment validation
+            double received = parseDoubleSafe(cashReceivedField.getText());
+            if (received < totalPay) {
+                JOptionPane.showMessageDialog(this, 
+                    "Tiền khách đưa chưa đủ!\n\nCần: " + CurrencyUtil.format(totalPay) + "\nĐã nhận: " + CurrencyUtil.format(received), 
+                    "Thiếu tiền", 
+                    JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            paymentMethod = "Cash";
+        } else {
+            // QR payment - không cần validation thêm
+            paymentMethod = "BankTransfer";
+        }
+        
+        // Lưu thông tin khách hàng nếu có nhập
+        String custName = customerNameField.getText() != null ? customerNameField.getText().trim() : "";
+        String custPhone = customerPhoneField.getText() != null ? customerPhoneField.getText().trim() : "";
+        if (!custName.isEmpty() || !custPhone.isEmpty()) {
+            saveCustomerIfNew(custName, custPhone);
+        }
+        
         int userId = Session.getCurrentUser() != null ? Session.getCurrentUser().getId() : 0;
-        String ref = referenceField.getText() == null ? null : referenceField.getText().trim();
-
+        
         try {
-            String orderNo = new CheckoutService().checkout(userId, "Khách lẻ", pm, ref, new ArrayList<>(cart.values()), subtotal, tax, totalPay);
-            JOptionPane.showMessageDialog(this, "Thanh toán thành công. Mã hóa đơn: " + orderNo);
+            List<CheckoutService.AppliedPromotion> promos = new ArrayList<>();
+            if (appliedPromotion != null) {
+                promos.add(new CheckoutService.AppliedPromotion(appliedPromotion.getId(), discount));
+            }
+            
+            String orderNo = new CheckoutService().checkoutWithOrderNumber(
+                userId, 
+                generatedOrderNumber, 
+                "Khách lẻ", 
+                paymentMethod, 
+                null,
+                new ArrayList<>(cart.values()), 
+                subtotal, 
+                0, // no tax
+                totalPay,
+                promos
+            );
+            
+            // Tính tiền thừa nếu thanh toán tiền mặt
+            double cashReceived = 0;
+            double changeAmount = 0;
+            if (cashBtn.isSelected()) {
+                cashReceived = parseDoubleSafe(cashReceivedField.getText());
+                changeAmount = cashReceived - totalPay;
+                if (changeAmount < 0) changeAmount = 0;
+            }
+            
+            // Hiển thị hóa đơn
+            InvoiceDialog.show(this, orderNo, new ArrayList<>(cart.values()),
+                subtotal, discount, totalPay,
+                cashBtn.isSelected() ? "Tiền mặt" : "Chuyển khoản",
+                cashReceived, changeAmount);
+            
             if (parent != null) parent.clearCartAfterCheckout();
             dispose();
+            
         } catch (CheckoutException ex) {
-            JOptionPane.showMessageDialog(this, ex.getMessage(), "Lỗi", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Lỗi thanh toán", JOptionPane.ERROR_MESSAGE);
         }
     }
-
+    
     private void syncBackToParent() {
         if (parent == null) return;
         parent.setCartFromSnapshot(new ArrayList<>(cart.values()));
     }
-
-    private double parseDoubleSafe(String s) {
-        Double d = tryParseDouble(s);
-        return d == null ? 0 : d;
+    
+    private String generateOrderNumber() {
+        // Tạo mã ngẫu nhiên gồm 8 chữ số và đảm bảo không trùng
+        String orderNo;
+        int maxAttempts = 100;
+        int attempt = 0;
+        
+        do {
+            // Tạo mã dạng: HD + 8 số ngẫu nhiên
+            long rnd = ThreadLocalRandom.current().nextLong(10000000L, 100000000L);
+            orderNo = "HD" + rnd;
+            attempt++;
+        } while (OrderDAO.existsOrderNumber(orderNo) && attempt < maxAttempts);
+        
+        // Nếu sau 100 lần vẫn trùng, thêm timestamp để đảm bảo duy nhất
+        if (attempt >= maxAttempts) {
+            String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HHmmss"));
+            orderNo = "HD" + ts + ThreadLocalRandom.current().nextInt(1000, 10000);
+        }
+        
+        return orderNo;
     }
-
-    private Double tryParseDouble(String s) {
-        if (s == null) return null;
-        String t = s.trim();
-        if (t.isEmpty()) return null;
+    
+    private String formatQuickCash(long value) {
+        if (value >= 1000000) {
+            return (value / 1000000) + "M";
+        } else {
+            return (value / 1000) + "K";
+        }
+    }
+    
+    private double parseDoubleSafe(String s) {
+        if (s == null) return 0;
+        String t = s.trim().replace(",", "").replace(".", "");
+        if (t.isEmpty()) return 0;
         try {
             return Double.parseDouble(t);
         } catch (NumberFormatException ex) {
-            return null;
+            return 0;
         }
     }
-
-    private void setCompactFieldWidth(JTextField f) {
-        f.setColumns(6);
-        Dimension d = new Dimension(80, 28);
-        f.setPreferredSize(d);
+    
+    private void saveCustomerIfNew(String name, String phone) {
+        if (name.isEmpty() && phone.isEmpty()) return;
+        
+        try {
+            // Kiểm tra khách hàng đã tồn tại theo SĐT
+            if (!phone.isEmpty()) {
+                List<Customer> existing = CustomerDAO.findByFilter(phone, null, false);
+                for (Customer c : existing) {
+                    if (phone.equals(c.getPhone())) {
+                        // Đã có khách hàng với SĐT này, không cần thêm mới
+                        return;
+                    }
+                }
+            }
+            
+            // Tạo khách hàng mới
+            Customer customer = new Customer();
+            customer.setFullName(name.isEmpty() ? "Khách lẻ" : name);
+            customer.setPhone(phone);
+            customer.setAddress("");
+            customer.setMembershipLevel("bronze");
+            customer.setLoyaltyPoints(0);
+            
+            CustomerDAO.create(customer);
+        } catch (Exception ex) {
+            // Lỗi khi lưu khách hàng - bỏ qua, không ảnh hưởng đến thanh toán
+            ex.printStackTrace();
+        }
     }
 }

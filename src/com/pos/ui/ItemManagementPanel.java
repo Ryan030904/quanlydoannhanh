@@ -5,6 +5,8 @@ import com.pos.dao.ItemDAO;
 import com.pos.model.Category;
 import com.pos.model.Item;
 import com.pos.util.CurrencyUtil;
+import com.pos.ui.theme.UIConstants;
+import com.pos.ui.components.*;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -19,8 +21,6 @@ import java.util.List;
 import java.util.Map;
 
 public class ItemManagementPanel extends JPanel {
-    private final Font NORMAL_FONT = new Font("Segoe UI", Font.PLAIN, 13);
-
     private final Runnable onDataChanged;
 
     private final DefaultTableModel model;
@@ -28,51 +28,94 @@ public class ItemManagementPanel extends JPanel {
 
     private final JComboBox<Category> categoryCombo;
     private final JTextField searchField;
-    private final JCheckBox showInactive;
 
     private Map<Integer, Category> categoryMap = new HashMap<>();
 
     public ItemManagementPanel(Runnable onDataChanged) {
         this.onDataChanged = onDataChanged;
-        setLayout(new BorderLayout(10, 10));
-        setBorder(new EmptyBorder(10, 10, 10, 10));
+        setLayout(new BorderLayout(UIConstants.SPACING_MD, UIConstants.SPACING_MD));
+        setOpaque(false);
+        setBorder(new EmptyBorder(UIConstants.SPACING_SM, UIConstants.SPACING_SM, UIConstants.SPACING_SM, UIConstants.SPACING_SM));
 
-        JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 6));
-        top.setBorder(new EmptyBorder(0, 0, 8, 0));
+        // === FILTER BAR ===
+        CardPanel top = new CardPanel(new FlowLayout(FlowLayout.LEFT, UIConstants.SPACING_MD, UIConstants.SPACING_SM));
+        top.setShadowSize(2);
+        top.setRadius(UIConstants.RADIUS_MD);
+        top.setBorder(new EmptyBorder(UIConstants.SPACING_SM, UIConstants.SPACING_MD, UIConstants.SPACING_SM, UIConstants.SPACING_MD));
 
+        JLabel filterIcon = new JLabel("Bộ lọc");
+        filterIcon.setFont(UIConstants.FONT_BODY_BOLD);
+        filterIcon.setForeground(UIConstants.PRIMARY_700);
+        top.add(filterIcon);
+        
+        JLabel catLabel = new JLabel("Danh mục:");
+        catLabel.setFont(UIConstants.FONT_BODY);
+        catLabel.setForeground(UIConstants.NEUTRAL_700);
+        top.add(catLabel);
+        
         categoryCombo = new JComboBox<>();
-        categoryCombo.setFont(NORMAL_FONT);
-        categoryCombo.setPreferredSize(new Dimension(220, 34));
-
-        searchField = new JTextField();
-        searchField.setFont(NORMAL_FONT);
-        searchField.setPreferredSize(new Dimension(240, 34));
-
-        showInactive = new JCheckBox("Hiện món ngừng bán");
-        showInactive.setFont(NORMAL_FONT);
-
-        JButton addBtn = new JButton("Thêm");
-        JButton editBtn = new JButton("Sửa");
-        JButton disableBtn = new JButton("Ngừng bán");
-        JButton enableBtn = new JButton("Bán lại");
-
-        top.add(new JLabel("Danh mục:"));
+        categoryCombo.setFont(UIConstants.FONT_BODY);
+        categoryCombo.setPreferredSize(new Dimension(200, UIConstants.INPUT_HEIGHT_SM));
         top.add(categoryCombo);
-        top.add(new JLabel("Tìm:"));
+
+        JLabel searchLabel = new JLabel("Tìm:");
+        searchLabel.setFont(UIConstants.FONT_BODY);
+        searchLabel.setForeground(UIConstants.NEUTRAL_700);
+        top.add(searchLabel);
+        
+        searchField = new JTextField();
+        searchField.setFont(UIConstants.FONT_BODY);
+        searchField.setPreferredSize(new Dimension(200, UIConstants.INPUT_HEIGHT_SM));
+        searchField.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(UIConstants.NEUTRAL_300, 1, true),
+            new EmptyBorder(6, 10, 6, 10)
+        ));
         top.add(searchField);
-        top.add(showInactive);
-        top.add(addBtn);
-        top.add(editBtn);
-        top.add(disableBtn);
-        top.add(enableBtn);
 
         add(top, BorderLayout.NORTH);
 
-        model = new DefaultTableModel(new Object[]{"ID", "Mã", "Tên", "Danh mục", "Giá", "Trạng thái", "Mô tả"}, 0) {
+        // === TABLE ===
+        CardPanel tableCard = new CardPanel(new BorderLayout());
+        tableCard.setShadowSize(2);
+        tableCard.setRadius(UIConstants.RADIUS_LG);
+        tableCard.setBorder(new EmptyBorder(UIConstants.SPACING_MD, UIConstants.SPACING_MD, UIConstants.SPACING_MD, UIConstants.SPACING_MD));
+        
+        model = new DefaultTableModel(new Object[]{"ID", "Mã", "Tên", "Danh mục", "Giá", "Mô tả"}, 0) {
             public boolean isCellEditable(int row, int col) { return false; }
         };
         table = new JTable(model);
-        add(new JScrollPane(table), BorderLayout.CENTER);
+        ModernTableStyle.apply(table, true);
+
+        // Favor description/name width
+        table.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
+        table.getColumnModel().getColumn(0).setPreferredWidth(50);   // ID
+        table.getColumnModel().getColumn(1).setPreferredWidth(90);   // Mã
+        table.getColumnModel().getColumn(2).setPreferredWidth(220);  // Tên
+        table.getColumnModel().getColumn(3).setPreferredWidth(140);  // Danh mục
+        table.getColumnModel().getColumn(4).setPreferredWidth(100);  // Giá
+        table.getColumnModel().getColumn(5).setPreferredWidth(300);  // Mô tả
+        
+        JScrollPane scroll = new JScrollPane(table);
+        scroll.setBorder(BorderFactory.createLineBorder(UIConstants.NEUTRAL_200));
+        scroll.getViewport().setBackground(Color.WHITE);
+        tableCard.add(scroll, BorderLayout.CENTER);
+        
+        add(tableCard, BorderLayout.CENTER);
+
+        // === ACTION BUTTONS ===
+        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT, UIConstants.SPACING_SM, 0));
+        bottom.setOpaque(false);
+        bottom.setBorder(new EmptyBorder(UIConstants.SPACING_SM, 0, 0, 0));
+        
+        ModernButton addBtn = new ModernButton("Thêm món", ModernButton.ButtonType.PRIMARY);
+        ModernButton editBtn = new ModernButton("Sửa", ModernButton.ButtonType.SECONDARY);
+        ModernButton deleteBtn = new ModernButton("Xóa", ModernButton.ButtonType.DANGER);
+
+        bottom.add(addBtn);
+        bottom.add(editBtn);
+        bottom.add(deleteBtn);
+        
+        add(bottom, BorderLayout.SOUTH);
 
         reloadCategories();
         refreshTable();
@@ -82,7 +125,6 @@ public class ItemManagementPanel extends JPanel {
         searchField.addKeyListener(new java.awt.event.KeyAdapter() {
             public void keyReleased(java.awt.event.KeyEvent e) { refreshTable(); }
         });
-        showInactive.addActionListener(e -> refreshTable());
 
         addBtn.addActionListener(e -> {
             Item it = showItemDialog(null);
@@ -110,8 +152,8 @@ public class ItemManagementPanel extends JPanel {
             }
             String priceStr = model.getValueAt(row, 4).toString().replaceAll("[^0-9\\.]", "");
             it.setPrice(Double.parseDouble(priceStr.isEmpty() ? "0" : priceStr));
-            it.setActive("Đang bán".equals(model.getValueAt(row, 5)));
-            it.setDescription((String) model.getValueAt(row, 6));
+            it.setActive(true);
+            it.setDescription((String) model.getValueAt(row, 5));
             Item edited = showItemDialog(it);
             if (edited != null) {
                 if (ItemDAO.update(edited)) {
@@ -121,8 +163,7 @@ public class ItemManagementPanel extends JPanel {
             }
         });
 
-        disableBtn.addActionListener(e -> setSelectedActive(false));
-        enableBtn.addActionListener(e -> setSelectedActive(true));
+        deleteBtn.addActionListener(e -> deleteSelectedItem());
     }
 
     public void reloadCategories() {
@@ -147,13 +188,12 @@ public class ItemManagementPanel extends JPanel {
             Category c = (Category) sel;
             if (c.getId() > 0) categoryId = c.getId();
         }
-        boolean includeInactive = showInactive.isSelected();
-        List<Item> items = ItemDAO.findByFilterAdmin(keyword, categoryId, includeInactive);
+        List<Item> items = ItemDAO.findByFilterAdmin(keyword, categoryId, false);
         for (Item it : items) {
             Category cat = categoryMap.get(it.getCategoryId());
             if (cat == null) cat = new Category(it.getCategoryId(), String.valueOf(it.getCategoryId()));
             model.addRow(new Object[]{it.getId(), it.getCode(), it.getName(), cat, CurrencyUtil.formatUSDAsVND(it.getPrice()),
-                    it.isActive() ? "Đang bán" : "Ngừng bán", it.getDescription()});
+                    it.getDescription()});
         }
     }
 
@@ -167,6 +207,32 @@ public class ItemManagementPanel extends JPanel {
         if (ItemDAO.setActive(id, active)) {
             refreshTable();
             if (onDataChanged != null) onDataChanged.run();
+        }
+    }
+
+    private void deleteSelectedItem() {
+        int row = table.getSelectedRow();
+        if (row < 0) {
+            JOptionPane.showMessageDialog(this, "Chọn một món để xóa");
+            return;
+        }
+        int id = (int) model.getValueAt(row, 0);
+        String name = (String) model.getValueAt(row, 2);
+        
+        int confirm = JOptionPane.showConfirmDialog(this, 
+            "Bạn có chắc muốn xóa món \"" + name + "\"?\nLưu ý: Xóa món ăn có thể ảnh hưởng đến dữ liệu hóa đơn.",
+            "Xác nhận xóa",
+            JOptionPane.YES_NO_OPTION,
+            JOptionPane.WARNING_MESSAGE);
+            
+        if (confirm != JOptionPane.YES_OPTION) return;
+        
+        if (ItemDAO.delete(id)) {
+            JOptionPane.showMessageDialog(this, "Đã xóa món ăn");
+            refreshTable();
+            if (onDataChanged != null) onDataChanged.run();
+        } else {
+            JOptionPane.showMessageDialog(this, "Không thể xóa món ăn này");
         }
     }
 
@@ -190,7 +256,7 @@ public class ItemManagementPanel extends JPanel {
         if (existing != null) {
             code.setText(existing.getCode());
             name.setText(existing.getName());
-            price.setText(String.valueOf(existing.getPrice()));
+            price.setText(String.valueOf((long) existing.getPrice()));
             desc.setText(existing.getDescription());
             active.setSelected(existing.isActive());
             for (int i = 0; i < cat.getItemCount(); i++) {

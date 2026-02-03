@@ -4,9 +4,10 @@ import java.text.DecimalFormat;
 
 public class CurrencyUtil {
     // Tỷ giá USD sang VND (có thể điều chỉnh)
-    private static final double USD_TO_VND = 25000.0;
+    private static final double USD_TO_VND = 1.0;
     private static final DecimalFormat DECIMAL = new DecimalFormat("#,##0");
     private static final DecimalFormat DECIMAL_VND = new DecimalFormat("#,###");
+    private static final DecimalFormat QTY = new DecimalFormat("0.##");
 
     /**
      * Format giá trị VND gốc
@@ -36,6 +37,13 @@ public class CurrencyUtil {
      */
     public static String formatDecimal(double amount) {
         return DECIMAL.format(amount);
+    }
+
+    public static String formatQuantity(double value) {
+        if (Double.isNaN(value) || Double.isInfinite(value)) return "";
+        // Luôn làm tròn và hiển thị số nguyên
+        long rounded = Math.round(value);
+        return String.valueOf(rounded);
     }
 }
 

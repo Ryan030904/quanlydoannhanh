@@ -2,6 +2,7 @@ package com.pos.ui;
 
 import com.pos.dao.ItemDAO;
 import com.pos.model.Item;
+import com.pos.ui.components.ModernTableStyle;
 import com.pos.util.CurrencyUtil;
 
 import javax.swing.*;
@@ -26,6 +27,7 @@ public class ItemManagementFrame extends JFrame {
             public boolean isCellEditable(int row, int col){ return false; }
         };
         JTable table = new JTable(model);
+        ModernTableStyle.apply(table, true);
         refreshTable();
 
         add(new JScrollPane(table), BorderLayout.CENTER);
@@ -79,6 +81,8 @@ public class ItemManagementFrame extends JFrame {
                 if (ItemDAO.delete(id)) {
                     refreshTable();
                     if (AppFrame.getInstance() != null) AppFrame.getInstance().refreshMenu();
+                } else {
+                    JOptionPane.showMessageDialog(this, "Không thể xóa món này", "Lỗi", JOptionPane.ERROR_MESSAGE);
                 }
             }
         });
@@ -90,7 +94,7 @@ public class ItemManagementFrame extends JFrame {
         model.setRowCount(0);
         List<Item> items = ItemDAO.findAll();
         for (Item it : items) {
-            model.addRow(new Object[]{it.getId(), it.getCode(), it.getName(), it.getCategoryId(), CurrencyUtil.formatUSDAsVND(it.getPrice()), it.getDescription()});
+            model.addRow(new Object[]{it.getId(), it.getCode(), it.getName(), it.getCategoryId(), CurrencyUtil.format(it.getPrice()), it.getDescription()});
         }
     }
 
@@ -107,7 +111,7 @@ public class ItemManagementFrame extends JFrame {
             code.setText(existing.getCode());
             name.setText(existing.getName());
             cat.setText(String.valueOf(existing.getCategoryId()));
-            price.setText(String.valueOf(existing.getPrice()));
+            price.setText(String.valueOf((long) existing.getPrice()));
             desc.setText(existing.getDescription());
             if (existing.getImagePath() != null) {
                 imgLabel.setText(existing.getImagePath());

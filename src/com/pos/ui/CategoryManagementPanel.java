@@ -2,6 +2,10 @@ package com.pos.ui;
 
 import com.pos.dao.CategoryDAO;
 import com.pos.model.Category;
+import com.pos.ui.components.CardPanel;
+import com.pos.ui.components.ModernButton;
+import com.pos.ui.components.ModernTableStyle;
+import com.pos.ui.theme.UIConstants;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -11,117 +15,156 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class CategoryManagementPanel extends JPanel {
-    private final Font NORMAL_FONT = new Font("Segoe UI", Font.PLAIN, 13);
-
     private final Runnable onDataChanged;
     private final DefaultTableModel model;
     private final JTable table;
 
     private final JTextField searchField;
-    private final JCheckBox showInactive;
+
+    private List<Category> currentCategories = new ArrayList<>();
 
     public CategoryManagementPanel(Runnable onDataChanged) {
         this.onDataChanged = onDataChanged;
-        setLayout(new BorderLayout(10, 10));
-        setBorder(new EmptyBorder(10, 10, 10, 10));
+        setLayout(new BorderLayout(UIConstants.SPACING_MD, UIConstants.SPACING_MD));
+        setOpaque(false);
+        setBorder(new EmptyBorder(UIConstants.SPACING_SM, UIConstants.SPACING_SM, UIConstants.SPACING_SM, UIConstants.SPACING_SM));
 
-        JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 6));
-        top.setBorder(new EmptyBorder(0, 0, 8, 0));
+        CardPanel top = new CardPanel(new FlowLayout(FlowLayout.LEFT, UIConstants.SPACING_SM, UIConstants.SPACING_SM));
+        top.setShadowSize(2);
+        top.setRadius(UIConstants.RADIUS_MD);
+        top.setBorder(new EmptyBorder(UIConstants.SPACING_SM, UIConstants.SPACING_MD, UIConstants.SPACING_SM, UIConstants.SPACING_MD));
+
+        JLabel searchLabel = new JLabel("Tìm:");
+        searchLabel.setFont(UIConstants.FONT_BODY);
+        searchLabel.setForeground(UIConstants.NEUTRAL_700);
+        top.add(searchLabel);
 
         searchField = new JTextField();
-        searchField.setFont(NORMAL_FONT);
-        searchField.setPreferredSize(new Dimension(260, 34));
-
-        showInactive = new JCheckBox("Hiện danh mục ngừng dùng");
-        showInactive.setFont(NORMAL_FONT);
-
-        JButton addBtn = new JButton("Thêm");
-        JButton editBtn = new JButton("Sửa");
-        JButton disableBtn = new JButton("Ngừng dùng");
-        JButton enableBtn = new JButton("Bật lại");
-
-        top.add(new JLabel("Tìm:"));
+        searchField.setFont(UIConstants.FONT_BODY);
+        searchField.setPreferredSize(new Dimension(260, UIConstants.INPUT_HEIGHT_SM));
+        searchField.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(UIConstants.NEUTRAL_300, 1, true),
+            new EmptyBorder(6, 10, 6, 10)
+        ));
         top.add(searchField);
-        top.add(showInactive);
+
+        ModernButton addBtn = new ModernButton("Thêm", ModernButton.ButtonType.PRIMARY, ModernButton.ButtonSize.SMALL);
+        ModernButton editBtn = new ModernButton("Sửa", ModernButton.ButtonType.SECONDARY, ModernButton.ButtonSize.SMALL);
+        ModernButton deleteBtn = new ModernButton("Xóa", ModernButton.ButtonType.DANGER, ModernButton.ButtonSize.SMALL);
+        addBtn.setPreferredSize(new Dimension(80, 32));
+        editBtn.setPreferredSize(new Dimension(70, 32));
+        deleteBtn.setPreferredSize(new Dimension(70, 32));
+
         top.add(addBtn);
         top.add(editBtn);
-        top.add(disableBtn);
-        top.add(enableBtn);
+        top.add(deleteBtn);
 
         add(top, BorderLayout.NORTH);
 
-        model = new DefaultTableModel(new Object[]{"ID", "Tên", "Trạng thái", "Mô tả"}, 0) {
+        model = new DefaultTableModel(new Object[]{"STT", "Tên", "Mô tả"}, 0) {
             public boolean isCellEditable(int row, int col) { return false; }
         };
         table = new JTable(model);
-        add(new JScrollPane(table), BorderLayout.CENTER);
+        ModernTableStyle.apply(table, true);
+
+        CardPanel tableCard = new CardPanel(new BorderLayout());
+        tableCard.setShadowSize(2);
+        tableCard.setRadius(UIConstants.RADIUS_MD);
+        JScrollPane scroll = new JScrollPane(table);
+        scroll.setBorder(BorderFactory.createLineBorder(UIConstants.NEUTRAL_200));
+        scroll.getViewport().setBackground(Color.WHITE);
+        tableCard.add(scroll, BorderLayout.CENTER);
+        add(tableCard, BorderLayout.CENTER);
 
         searchField.addActionListener(e -> refreshTable());
         searchField.addKeyListener(new java.awt.event.KeyAdapter() {
             public void keyReleased(java.awt.event.KeyEvent e) { refreshTable(); }
         });
-        showInactive.addActionListener(e -> refreshTable());
 
         addBtn.addActionListener(e -> {
             Category c = showCategoryDialog(null);
             if (c != null) {
                 if (CategoryDAO.create(c)) {
                     refreshTable();
-                    if (onDataChanged != null) onDataChanged.run();
+                    if (this.onDataChanged != null) this.onDataChanged.run();
                 }
             }
         });
 
         editBtn.addActionListener(e -> {
-            int row = table.getSelectedRow();
-            if (row == -1) {
+            int viewRow = table.getSelectedRow();
+            if (viewRow == -1) {
                 JOptionPane.showMessageDialog(this, "Chọn một danh mục để sửa");
                 return;
             }
-            Category c = new Category((int) model.getValueAt(row, 0), (String) model.getValueAt(row, 1));
-            c.setActive("Đang dùng".equals(model.getValueAt(row, 2)));
-            c.setDescription((String) model.getValueAt(row, 3));
+            int row = table.convertRowIndexToModel(viewRow);
+            if (row < 0 || row >= currentCategories.size()) return;
+            Category src = currentCategories.get(row);
+            Category c = new Category(src.getId(), src.getName());
+            c.setActive(src.isActive());
+            c.setDescription(src.getDescription());
             Category edited = showCategoryDialog(c);
             if (edited != null) {
                 if (CategoryDAO.update(edited)) {
                     refreshTable();
-                    if (onDataChanged != null) onDataChanged.run();
+                    if (this.onDataChanged != null) this.onDataChanged.run();
                 }
             }
         });
 
-        disableBtn.addActionListener(e -> setSelectedStatus(false));
-        enableBtn.addActionListener(e -> setSelectedStatus(true));
+        deleteBtn.addActionListener(e -> {
+            int viewRow = table.getSelectedRow();
+            if (viewRow == -1) {
+                JOptionPane.showMessageDialog(this, "Chọn một danh mục để xóa");
+                return;
+            }
+            int row = table.convertRowIndexToModel(viewRow);
+            if (row < 0 || row >= currentCategories.size()) return;
+            Category c = currentCategories.get(row);
+            int id = c.getId();
+            boolean inUse = CategoryDAO.isInUse(id);
+            String msg = inUse
+                    ? "Danh mục đang được dùng trong Món ăn. Nếu xóa, các món ăn thuộc danh mục này sẽ bị trống danh mục. Bạn có chắc muốn xóa?"
+                    : "Bạn có chắc muốn xóa danh mục này?";
+            int res = JOptionPane.showConfirmDialog(this, msg, "Xác nhận xóa",
+                    JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (res == JOptionPane.YES_OPTION) {
+                if (CategoryDAO.delete(id)) {
+                    refreshTable();
+                    if (this.onDataChanged != null) this.onDataChanged.run();
+                }
+            }
+        });
+
+        int inactiveCount = CategoryDAO.countInactive();
+        if (inactiveCount > 0) {
+            int confirm = JOptionPane.showConfirmDialog(this,
+                    "Có " + inactiveCount + " danh mục đang ngừng dùng. Bạn có muốn xóa hết không?",
+                    "Xóa danh mục ngừng dùng",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.WARNING_MESSAGE);
+            if (confirm == JOptionPane.YES_OPTION) {
+                int deleted = CategoryDAO.deleteInactive();
+                if (deleted > 0 && this.onDataChanged != null) this.onDataChanged.run();
+            }
+        }
 
         refreshTable();
     }
 
     public void refreshTable() {
         model.setRowCount(0);
-        boolean includeInactive = showInactive.isSelected();
-        List<Category> list = CategoryDAO.findAll(includeInactive);
+        List<Category> list = CategoryDAO.findAll(false);
         String kw = searchField.getText() == null ? "" : searchField.getText().trim().toLowerCase();
-        List<Category> filtered = new ArrayList<>();
+        currentCategories = new ArrayList<>();
         for (Category c : list) {
             if (kw.isEmpty() || (c.getName() != null && c.getName().toLowerCase().contains(kw))) {
-                filtered.add(c);
+                currentCategories.add(c);
             }
         }
-        for (Category c : filtered) {
-            model.addRow(new Object[]{c.getId(), c.getName(), c.isActive() ? "Đang dùng" : "Ngừng dùng", c.getDescription()});
-        }
-    }
-
-    private void setSelectedStatus(boolean active) {
-        int row = table.getSelectedRow();
-        if (row == -1) {
-            JOptionPane.showMessageDialog(this, "Chọn một danh mục");
-            return;
-        }
-        int id = (int) model.getValueAt(row, 0);
-        if (CategoryDAO.setStatus(id, active)) {
-            refreshTable();
-            if (onDataChanged != null) onDataChanged.run();
+        int stt = 1;
+        for (Category c : currentCategories) {
+            model.addRow(new Object[]{stt++, c.getName(), c.getDescription()});
         }
     }
 
@@ -130,27 +173,37 @@ public class CategoryManagementPanel extends JPanel {
         JTextArea desc = new JTextArea(3, 20);
         desc.setLineWrap(true);
         desc.setWrapStyleWord(true);
-        JCheckBox active = new JCheckBox("Đang dùng");
-        active.setSelected(true);
 
         if (existing != null) {
             name.setText(existing.getName());
             desc.setText(existing.getDescription());
-            active.setSelected(existing.isActive());
         }
 
-        JPanel p = new JPanel();
-        p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
-        p.add(new JLabel("Tên danh mục:"));
-        p.add(name);
-        p.add(Box.createRigidArea(new Dimension(0, 6)));
-        p.add(new JLabel("Mô tả:"));
-        p.add(new JScrollPane(desc));
-        p.add(Box.createRigidArea(new Dimension(0, 6)));
-        p.add(active);
+        JScrollPane descScroll = new JScrollPane(desc);
+        descScroll.setPreferredSize(new Dimension(320, 90));
+
+        JPanel p = new JPanel(new GridBagLayout());
+        p.setBorder(new EmptyBorder(10, 10, 10, 10));
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(4, 6, 4, 6);
+        gbc.anchor = GridBagConstraints.WEST;
+
+        int row = 0;
+        gbc.gridx = 0; gbc.gridy = row;
+        p.add(new JLabel("Tên danh mục:"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
+        p.add(name, gbc);
+        gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.anchor = GridBagConstraints.NORTHWEST;
+        p.add(new JLabel("Mô tả:"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.BOTH; gbc.weightx = 1.0; gbc.weighty = 1.0;
+        p.add(descScroll, gbc);
+        gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0; gbc.weighty = 0; gbc.anchor = GridBagConstraints.WEST;
 
         int res = JOptionPane.showConfirmDialog(this, p, existing == null ? "Thêm danh mục" : "Sửa danh mục",
-                JOptionPane.OK_CANCEL_OPTION);
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (res == JOptionPane.OK_OPTION) {
             String n = name.getText() == null ? "" : name.getText().trim();
             if (n.isEmpty()) {
@@ -160,7 +213,7 @@ public class CategoryManagementPanel extends JPanel {
             Category c = existing == null ? new Category(0, n) : existing;
             c.setName(n);
             c.setDescription(desc.getText() == null ? null : desc.getText().trim());
-            c.setActive(active.isSelected());
+            c.setActive(true);
             return c;
         }
         return null;
