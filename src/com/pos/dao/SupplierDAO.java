@@ -32,26 +32,10 @@ public class SupplierDAO {
     public static List<Supplier> findByFilter(String keyword, boolean includeInactive) {
         List<Supplier> list = new ArrayList<>();
 
-        boolean hasIsActive;
-        boolean hasStatus;
-        try (Connection c = DBConnection.getConnection()) {
-            hasIsActive = hasColumn(c, "suppliers", "is_active");
-            hasStatus = !hasIsActive && hasColumn(c, "suppliers", "status");
-        } catch (SQLException ex) {
-            hasIsActive = false;
-            hasStatus = false;
-        }
-        String activeCol = hasIsActive ? "is_active" : (hasStatus ? "status" : null);
-
         StringBuilder sql = new StringBuilder(
-                "SELECT supplier_id, supplier_name, phone, email, address, notes" +
-                        (activeCol != null ? ", " + activeCol + " AS active_flag" : "") +
-                        " FROM suppliers WHERE 1=1");
+                "SELECT supplier_id, supplier_name, phone, email, address, notes FROM suppliers WHERE 1=1");
         List<Object> params = new ArrayList<>();
 
-        if (!includeInactive && activeCol != null) {
-            sql.append(" AND " + activeCol + " = 1");
-        }
         if (keyword != null && !keyword.trim().isEmpty()) {
             sql.append(" AND (supplier_name LIKE ? OR phone LIKE ? OR email LIKE ?)");
             String kw = "%" + keyword.trim() + "%";
@@ -68,8 +52,6 @@ public class SupplierDAO {
             }
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    boolean active = true;
-                    if (activeCol != null) active = rs.getInt("active_flag") == 1;
                     list.add(new Supplier(
                             rs.getInt("supplier_id"),
                             rs.getString("supplier_name"),
@@ -77,7 +59,7 @@ public class SupplierDAO {
                             rs.getString("email"),
                             rs.getString("address"),
                             rs.getString("notes"),
-                            active
+                            true
                     ));
                 }
             }

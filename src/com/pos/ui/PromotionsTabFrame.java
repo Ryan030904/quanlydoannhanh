@@ -14,6 +14,10 @@ public class PromotionsTabFrame extends JFrame {
         this.parent = parent;
 
         setTitle("Khuyến mãi");
+		try {
+			setIconImages(AppFrame.getAppIconImages());
+		} catch (Exception ignored) {
+		}
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         setSize(1200, 760);
         setLocationRelativeTo(parent);

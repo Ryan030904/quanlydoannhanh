@@ -197,19 +197,6 @@ public class ItemManagementPanel extends JPanel {
         }
     }
 
-    private void setSelectedActive(boolean active) {
-        int row = table.getSelectedRow();
-        if (row == -1) {
-            JOptionPane.showMessageDialog(this, "Chọn một món");
-            return;
-        }
-        int id = (int) model.getValueAt(row, 0);
-        if (ItemDAO.setActive(id, active)) {
-            refreshTable();
-            if (onDataChanged != null) onDataChanged.run();
-        }
-    }
-
     private void deleteSelectedItem() {
         int row = table.getSelectedRow();
         if (row < 0) {
@@ -242,8 +229,6 @@ public class ItemManagementPanel extends JPanel {
         JComboBox<Category> cat = new JComboBox<>();
         JTextField price = new JTextField();
         JTextField desc = new JTextField();
-        JCheckBox active = new JCheckBox("Đang bán");
-        active.setSelected(true);
 
         DefaultComboBoxModel<Category> cm = new DefaultComboBoxModel<>();
         for (Category c : CategoryDAO.findAll(true)) cm.addElement(c);
@@ -258,7 +243,6 @@ public class ItemManagementPanel extends JPanel {
             name.setText(existing.getName());
             price.setText(String.valueOf((long) existing.getPrice()));
             desc.setText(existing.getDescription());
-            active.setSelected(existing.isActive());
             for (int i = 0; i < cat.getItemCount(); i++) {
                 if (cat.getItemAt(i).getId() == existing.getCategoryId()) {
                     cat.setSelectedIndex(i);
@@ -303,7 +287,6 @@ public class ItemManagementPanel extends JPanel {
         p.add(new JLabel("Mô tả:"));
         p.add(desc);
         p.add(Box.createRigidArea(new Dimension(0, 6)));
-        p.add(active);
 
         int res = JOptionPane.showConfirmDialog(this, p, existing == null ? "Thêm món" : "Sửa món",
                 JOptionPane.OK_CANCEL_OPTION);
@@ -323,7 +306,6 @@ public class ItemManagementPanel extends JPanel {
                 }
                 it.setPrice(Double.parseDouble(price.getText() == null ? "0" : price.getText().trim()));
                 it.setDescription(desc.getText() == null ? null : desc.getText().trim());
-                it.setActive(active.isSelected());
 
                 if (selectedImage[0] != null) {
                     File imgDir = new File("img");

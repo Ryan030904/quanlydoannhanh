@@ -164,22 +164,55 @@ public class DashboardManagementPanel extends JPanel {
         toDatePicker = new DatePicker();
         toDatePicker.setPreferredSize(new Dimension(130, UIConstants.INPUT_HEIGHT_SM));
         top.add(toDatePicker);
-        
-        ModernButton applyBtn = new ModernButton("Lọc", ModernButton.ButtonType.PRIMARY, ModernButton.ButtonSize.SMALL);
-        applyBtn.setPreferredSize(new Dimension(80, 32));
-        applyBtn.addActionListener(e -> refreshAll());
-        top.add(applyBtn);
-        
-        ModernButton resetBtn = new ModernButton("Reset", ModernButton.ButtonType.GHOST, ModernButton.ButtonSize.SMALL);
-        resetBtn.setPreferredSize(new Dimension(80, 32));
-        resetBtn.addActionListener(e -> {
-            quickDateCombo.setSelectedItem("Tháng này");
-            applyQuickDate();
-        });
-        top.add(resetBtn);
+
+		fromDatePicker.addPropertyChangeListener("date", e -> refreshAll());
+		toDatePicker.addPropertyChangeListener("date", e -> refreshAll());
+		fromDatePicker.addActionListener(e -> refreshAll());
+		toDatePicker.addActionListener(e -> refreshAll());
+		
+		ModernButton resetAllBtn = new ModernButton("Xóa dữ liệu thống kê", ModernButton.ButtonType.DANGER, ModernButton.ButtonSize.SMALL);
+		resetAllBtn.setPreferredSize(new Dimension(160, 32));
+		resetAllBtn.addActionListener(e -> {
+			int confirm = JOptionPane.showConfirmDialog(this,
+					"Bạn có chắc muốn đặt lại toàn bộ số liệu thống kê đang hiển thị về 0?\n\nLưu ý: Thao tác này KHÔNG xóa dữ liệu trong CSDL.",
+					"Xác nhận đặt lại",
+					JOptionPane.YES_NO_OPTION,
+					JOptionPane.WARNING_MESSAGE);
+			if (confirm != JOptionPane.YES_OPTION) return;
+			resetStatsView();
+		});
+		top.add(resetAllBtn);
         
         return top;
     }
+
+	private void resetStatsView() {
+		if (revenueCard != null) revenueCard.setValue("0");
+		if (ordersCard != null) ordersCard.setValue("0");
+		if (avgCard != null) avgCard.setValue("0");
+		if (importCostCard != null) importCostCard.setValue("0");
+		if (profitCard != null) profitCard.setValue("0");
+		if (lowStockModel != null) lowStockModel.setRowCount(0);
+
+		if (totalProductsCard != null) totalProductsCard.setValue("0");
+		if (topProductCard != null) topProductCard.setValue("-");
+		if (totalSoldQtyCard != null) totalSoldQtyCard.setValue("0");
+		if (topProductsModel != null) topProductsModel.setRowCount(0);
+
+		if (totalEmployeesCard != null) totalEmployeesCard.setValue("0");
+		if (topEmployeeCard != null) topEmployeeCard.setValue("-");
+		if (employeeStatsModel != null) employeeStatsModel.setRowCount(0);
+
+		if (totalCustomersCard != null) totalCustomersCard.setValue("0");
+		if (topCustomerCard != null) topCustomerCard.setValue("-");
+		if (newCustomersCard != null) newCustomersCard.setValue("0");
+		if (customerStatsModel != null) customerStatsModel.setRowCount(0);
+
+		if (totalSuppliersCard != null) totalSuppliersCard.setValue("0");
+		if (totalImportCostCard != null) totalImportCostCard.setValue("0");
+		if (topSupplierCard != null) topSupplierCard.setValue("-");
+		if (supplierStatsModel != null) supplierStatsModel.setRowCount(0);
+	}
     
     // ==================== OVERVIEW TAB ====================
     private JPanel createOverviewTab() {

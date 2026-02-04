@@ -119,7 +119,7 @@ public class IngredientManagementPanel extends JPanel {
         tableCard.setBorder(new EmptyBorder(UIConstants.SPACING_MD, UIConstants.SPACING_MD, UIConstants.SPACING_MD, UIConstants.SPACING_MD));
 
         model = new DefaultTableModel(new Object[]{
-                "STT", "Tên", "Đơn vị", "Tồn hiện tại", "Tồn tối thiểu", "Giá nhập", "Nhà cung cấp"
+                "STT", "Mã", "Tên", "Đơn vị", "Tồn hiện tại", "Tồn tối thiểu", "Giá nhập", "Nhà cung cấp"
         }, 0) {
             public boolean isCellEditable(int row, int col) { return false; }
         };
@@ -129,13 +129,14 @@ public class IngredientManagementPanel extends JPanel {
 
         // Tối ưu column widths
         table.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
-        table.getColumnModel().getColumn(0).setPreferredWidth(50);   // Mã
-        table.getColumnModel().getColumn(1).setPreferredWidth(200);  // Tên
-        table.getColumnModel().getColumn(2).setPreferredWidth(70);   // Đơn vị
-        table.getColumnModel().getColumn(3).setPreferredWidth(100);  // Tồn hiện tại
-        table.getColumnModel().getColumn(4).setPreferredWidth(100);  // Tồn tối thiểu
-        table.getColumnModel().getColumn(5).setPreferredWidth(100);  // Giá nhập
-        table.getColumnModel().getColumn(6).setPreferredWidth(180);  // Nhà cung cấp
+        table.getColumnModel().getColumn(0).setPreferredWidth(50);   // STT
+        table.getColumnModel().getColumn(1).setPreferredWidth(60);   // Mã
+        table.getColumnModel().getColumn(2).setPreferredWidth(200);  // Tên
+        table.getColumnModel().getColumn(3).setPreferredWidth(70);   // Đơn vị
+        table.getColumnModel().getColumn(4).setPreferredWidth(100);  // Tồn hiện tại
+        table.getColumnModel().getColumn(5).setPreferredWidth(100);  // Tồn tối thiểu
+        table.getColumnModel().getColumn(6).setPreferredWidth(100);  // Giá nhập
+        table.getColumnModel().getColumn(7).setPreferredWidth(180);  // Nhà cung cấp
 
         JScrollPane scroll = new JScrollPane(table);
         scroll.setBorder(BorderFactory.createLineBorder(UIConstants.NEUTRAL_200));
@@ -236,6 +237,7 @@ public class IngredientManagementPanel extends JPanel {
 
             model.addRow(new Object[]{
                     stt++,
+                    ing.getId(),
                     ing.getName(),
                     ing.getUnit(),
                     currentStockStr,

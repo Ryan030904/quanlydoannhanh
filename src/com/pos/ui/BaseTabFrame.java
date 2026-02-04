@@ -18,6 +18,10 @@ public abstract class BaseTabFrame extends JFrame {
         this.parent = parent;
         
         setTitle(title);
+		try {
+			setIconImages(AppFrame.getAppIconImages());
+		} catch (Exception ignored) {
+		}
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         setSize(1300, 800);
         setLocationRelativeTo(parent);

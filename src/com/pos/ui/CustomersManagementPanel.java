@@ -102,7 +102,7 @@ public class CustomersManagementPanel extends JPanel {
 
         // Bảng 3 cột: Mã, Tên, SĐT
         model = new DefaultTableModel(new Object[]{
-                "Mã", "Tên", "SĐT"
+                "STT", "Tên", "SĐT"
         }, 0) {
             @Override
             public boolean isCellEditable(int row, int col) { return false; }
@@ -185,15 +185,16 @@ public class CustomersManagementPanel extends JPanel {
         return panel;
     }
 
-    private void refreshTable() {
+    public void refreshTable() {
         String keyword = searchField.getText() == null ? null : searchField.getText().trim();
 
         current = CustomerDAO.findByFilter(keyword, null, false);
 
         model.setRowCount(0);
-        for (Customer c : current) {
+        for (int i = 0; i < current.size(); i++) {
+            Customer c = current.get(i);
             model.addRow(new Object[]{
-                c.getId(),
+                i + 1,
                 c.getFullName(),
                 c.getPhone()
             });
@@ -206,8 +207,10 @@ public class CustomersManagementPanel extends JPanel {
 
     private Customer getSelectedCustomer() {
         int row = table.getSelectedRow();
-        if (row < 0 || row >= current.size()) return null;
-        return current.get(row);
+        if (row < 0) return null;
+        int modelRow = table.convertRowIndexToModel(row);
+        if (modelRow < 0 || modelRow >= current.size()) return null;
+        return current.get(modelRow);
     }
 
     private Customer showCustomerDialog(Customer existing) {
@@ -238,6 +241,14 @@ public class CustomersManagementPanel extends JPanel {
             JOptionPane.showMessageDialog(this, "Tên khách hàng không được để trống");
             return null;
         }
+
+		if (!p.isEmpty()) {
+			int excludeId = existing == null ? 0 : existing.getId();
+			if (CustomerDAO.phoneExists(p, excludeId)) {
+				JOptionPane.showMessageDialog(this, "Số điện thoại đã tồn tại. Vui lòng nhập số khác.");
+				return null;
+			}
+		}
 
         Customer c = existing == null ? new Customer() : existing;
         c.setFullName(n);

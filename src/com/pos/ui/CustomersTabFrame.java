@@ -14,6 +14,10 @@ public class CustomersTabFrame extends JFrame {
         this.parent = parent;
 
         setTitle("Khách hàng");
+		try {
+			setIconImages(AppFrame.getAppIconImages());
+		} catch (Exception ignored) {
+		}
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         setSize(1200, 760);
         setLocationRelativeTo(parent);

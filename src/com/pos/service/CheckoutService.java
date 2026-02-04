@@ -315,9 +315,12 @@ public class CheckoutService {
     private int insertOrder(Connection c, String orderNumber, int userId, String customerName,
                             double subtotal, double tax, double discount, double total, String paymentMethod) throws SQLException {
         String timeCol = hasColumn(c, "orders", "order_time") ? "order_time" : (hasColumn(c, "orders", "created_at") ? "created_at" : null);
+		boolean hasCustomerNameCol = hasColumn(c, "orders", "customer_name");
         String sql = "INSERT INTO orders (order_number, employee_id, order_type, status, subtotal, discount_amount, tax_amount, total_amount, payment_method, payment_status, notes" +
+				(hasCustomerNameCol ? ", customer_name" : "") +
                 (timeCol != null ? (", " + timeCol) : "") +
                 ") VALUES (?, ?, 'takeaway', 'completed', ?, ?, ?, ?, ?, 'paid', ?" +
+				(hasCustomerNameCol ? ", ?" : "") +
                 (timeCol != null ? ", ?" : "") +
                 ")";
         try (PreparedStatement ps = c.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
@@ -330,6 +333,10 @@ public class CheckoutService {
             ps.setDouble(i++, total);
             ps.setString(i++, normalizePaymentMethod(paymentMethod));
             ps.setString(i++, buildNotes(customerName, null));
+			if (hasCustomerNameCol) {
+				String cn = customerName == null ? "" : customerName.trim();
+				ps.setString(i++, cn);
+			}
             if (timeCol != null) {
                 ps.setTimestamp(i++, Timestamp.valueOf(LocalDateTime.now()));
             }
@@ -382,40 +389,62 @@ public class CheckoutService {
     private boolean orderNumberExists(Connection c, String orderNo) {
         if (c == null || orderNo == null || orderNo.trim().isEmpty()) return false;
         String sql = "SELECT 1 FROM orders WHERE order_number = ? LIMIT 1";
-        try (PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setString(1, orderNo.trim());
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next();
-            }
-        } catch (SQLException ignored) {
-            return false;
-        }
+		try (PreparedStatement ps = c.prepareStatement(sql)) {
+			ps.setString(1, orderNo.trim());
+			try (ResultSet rs = ps.executeQuery()) {
+				return rs.next();
+			}
+		} catch (SQLException ignored) {
+			return false;
+		}
     }
 
-    private String normalizePaymentMethod(String method) {
-        if (method == null) return "cash";
-        String m = method.trim();
-        if (m.equalsIgnoreCase("Tiền mặt")) return "cash";
-        if (m.equalsIgnoreCase("Chuyển khoản")) return "mobile_banking";
-        if (m.equalsIgnoreCase("Cash")) return "cash";
-        if (m.equalsIgnoreCase("BankTransfer") || m.equalsIgnoreCase("QR") || m.equalsIgnoreCase("VietQR") || m.equalsIgnoreCase("mobile_banking")) {
-            return "mobile_banking";
-        }
-        return "cash";
-    }
+	private String normalizePaymentMethod(String method) {
+		if (method == null) return "cash";
+		String m = method.trim();
+		if (m.equalsIgnoreCase("Tiền mặt")) return "cash";
+		if (m.equalsIgnoreCase("Chuyển khoản")) return "mobile_banking";
+		if (m.equalsIgnoreCase("Cash")) return "cash";
+		if (m.equalsIgnoreCase("BankTransfer") || m.equalsIgnoreCase("QR") || m.equalsIgnoreCase("VietQR") || m.equalsIgnoreCase("mobile_banking")) {
+			return "mobile_banking";
+		}
+		return "cash";
+	}
 
-    private String buildNotes(String customerName, String reference) {
-        String cn = customerName == null ? "" : customerName.trim();
-        String ref = reference == null ? "" : reference.trim();
-        if (cn.isEmpty() && ref.isEmpty()) return null;
-        if (cn.isEmpty()) return ref;
-        if (ref.isEmpty()) return "Khách hàng: " + cn;
-        return "Khách hàng: " + cn + " | Tham chiếu: " + ref;
-    }
+	private String normalizePhone(String phone) {
+		if (phone == null) return "";
+		return phone.replaceAll("[^0-9]", "").trim();
+	}
 
-    private String generateOrderNumber() {
-        String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
-        int rnd = ThreadLocalRandom.current().nextInt(1000, 10000);
-        return "ORD-" + ts + "-" + rnd;
-    }
+	private String extractPhoneFromReference(String reference) {
+		if (reference == null) return null;
+		String r = reference.trim();
+		if (r.isEmpty()) return null;
+		String lower = r.toLowerCase();
+		if (lower.startsWith("sđt:") || lower.startsWith("sdt:")) {
+			String raw = r.substring(r.indexOf(':') + 1).trim();
+			String norm = normalizePhone(raw);
+			return norm.isEmpty() ? null : raw;
+		}
+		String norm = normalizePhone(r);
+		if (norm.length() >= 8) return r;
+		return null;
+	}
+
+	private String buildNotes(String customerName, String reference) {
+		String cn = customerName == null ? "" : customerName.trim();
+		String ref = reference == null ? "" : reference.trim();
+		String phone = extractPhoneFromReference(ref);
+		String refText = phone != null ? ("SĐT: " + phone) : (ref.isEmpty() ? "" : ("Tham chiếu: " + ref));
+		if (cn.isEmpty() && refText.isEmpty()) return null;
+		if (cn.isEmpty()) return refText;
+		if (refText.isEmpty()) return "Khách hàng: " + cn;
+		return "Khách hàng: " + cn + " | " + refText;
+	}
+
+	private String generateOrderNumber() {
+		String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
+		int rnd = ThreadLocalRandom.current().nextInt(1000, 10000);
+		return "ORD-" + ts + "-" + rnd;
+	}
 }

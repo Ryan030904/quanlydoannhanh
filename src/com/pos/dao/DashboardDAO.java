@@ -271,8 +271,7 @@ public class DashboardDAO {
             boolean hasMinStock = hasColumn(c, "ingredients", "min_stock_level");
             String minStockExpr = hasMinStock ? "COALESCE(i.min_stock_level,0)" : "0";
 
-            boolean hasActive = hasColumn(c, "ingredients", "is_active");
-            String activeWhere = hasActive ? " WHERE i.is_active = 1" : "";
+            String activeWhere = "";
 
             StringBuilder consumptionAgg = new StringBuilder(
                     "SELECT pi.ingredient_id AS ingredient_id, " +
@@ -599,8 +598,7 @@ public class DashboardDAO {
             boolean hasSupplierId = hasColumn(c, "inventory_transactions", "supplier_id") && hasTable(c, "suppliers");
 
             if (hasSupplierId) {
-                boolean suppliersHasActive = hasColumn(c, "suppliers", "is_active");
-                String supplierActiveWhere = suppliersHasActive ? " WHERE s.is_active = 1" : "";
+                String supplierActiveWhere = "";
 
                 String importCountExprLeft = txIdCol != null
                         ? ("COUNT(DISTINCT t." + txIdCol + ")")

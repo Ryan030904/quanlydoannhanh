@@ -136,19 +136,6 @@ public class CategoryManagementPanel extends JPanel {
             }
         });
 
-        int inactiveCount = CategoryDAO.countInactive();
-        if (inactiveCount > 0) {
-            int confirm = JOptionPane.showConfirmDialog(this,
-                    "Có " + inactiveCount + " danh mục đang ngừng dùng. Bạn có muốn xóa hết không?",
-                    "Xóa danh mục ngừng dùng",
-                    JOptionPane.YES_NO_OPTION,
-                    JOptionPane.WARNING_MESSAGE);
-            if (confirm == JOptionPane.YES_OPTION) {
-                int deleted = CategoryDAO.deleteInactive();
-                if (deleted > 0 && this.onDataChanged != null) this.onDataChanged.run();
-            }
-        }
-
         refreshTable();
     }
 

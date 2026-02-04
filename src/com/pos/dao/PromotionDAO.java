@@ -53,8 +53,6 @@ public class PromotionDAO {
                 "SELECT promotion_id, promotion_name, ");
         List<Object> params = new ArrayList<>();
 
-        LocalDate today = LocalDate.now();
-
         try (Connection c = DBConnection.getConnection()) {
             int mode = getCodeMode(c);
             sql.append(selectCodeExpr(mode)).append(", description, discount_type, discount_value, min_order_amount, start_date, end_date, is_active, applicable_products ")
@@ -73,20 +71,6 @@ public class PromotionDAO {
                 params.add("%" + keyword.trim() + "%");
                 if (mode == 3) {
                     params.add("%" + keyword.trim() + "%");
-                }
-            }
-
-            if (statusFilter != null && !statusFilter.trim().isEmpty() && !"Tất cả".equalsIgnoreCase(statusFilter.trim())) {
-                String s = statusFilter.trim();
-                if (s.equalsIgnoreCase("Tắt")) {
-                    sql.append(" AND is_active = 0");
-                } else if (s.equalsIgnoreCase("Đang hoạt động")) {
-                    sql.append(" AND is_active = 1 AND start_date <= ? AND end_date >= ?");
-                    params.add(Date.valueOf(today));
-                    params.add(Date.valueOf(today));
-                } else if (s.equalsIgnoreCase("Hết hạn")) {
-                    sql.append(" AND is_active = 1 AND end_date < ?");
-                    params.add(Date.valueOf(today));
                 }
             }
 
@@ -110,7 +94,7 @@ public class PromotionDAO {
                         Date ed = rs.getDate("end_date");
                         p.setStartDate(sd == null ? null : sd.toLocalDate());
                         p.setEndDate(ed == null ? null : ed.toLocalDate());
-                        p.setActive(rs.getInt("is_active") == 1);
+                        p.setActive(true);
                         p.setApplicableProductIds(parseApplicableProducts(rs.getString("applicable_products")));
                         list.add(p);
                     }
@@ -221,7 +205,7 @@ public class PromotionDAO {
         else ps.setDate(idx++, Date.valueOf(p.getStartDate()));
         if (p.getEndDate() == null) ps.setObject(idx++, null);
         else ps.setDate(idx++, Date.valueOf(p.getEndDate()));
-        ps.setInt(idx++, p.isActive() ? 1 : 0);
+        ps.setInt(idx++, 1);
         String applicable = serializeApplicableProducts(p.getApplicableProductIds());
         ps.setString(idx++, applicable);
         return idx;
@@ -291,7 +275,7 @@ public class PromotionDAO {
             } else {
                 sql.append("(UPPER(code) = ? OR UPPER(promotion_name) = ?)");
             }
-            sql.append(" AND is_active = 1 AND start_date <= CURDATE() AND end_date >= CURDATE() LIMIT 1");
+            sql.append(" AND start_date <= CURDATE() AND end_date >= CURDATE() LIMIT 1");
 
             try (PreparedStatement ps = c.prepareStatement(sql.toString())) {
                 ps.setString(1, keyword);
@@ -316,7 +300,7 @@ public class PromotionDAO {
                         Date ed = rs.getDate("end_date");
                         p.setStartDate(sd == null ? null : sd.toLocalDate());
                         p.setEndDate(ed == null ? null : ed.toLocalDate());
-                        p.setActive(rs.getInt("is_active") == 1);
+                        p.setActive(true);
                         p.setApplicableProductIds(parseApplicableProducts(rs.getString("applicable_products")));
                         return p;
                     }
@@ -337,7 +321,7 @@ public class PromotionDAO {
         String keyword = code.trim();
 
         String sql = "SELECT promotion_id, promotion_name, description, discount_type, discount_value, min_order_amount, start_date, end_date, is_active, applicable_products " +
-                "FROM promotions WHERE is_active = 1 AND (promotion_name LIKE ? OR promotion_id = ?) " +
+                "FROM promotions WHERE (promotion_name LIKE ? OR promotion_id = ?) " +
                 "AND start_date <= CURDATE() AND end_date >= CURDATE() " +
                 "ORDER BY discount_value DESC LIMIT 1";
 
@@ -361,7 +345,7 @@ public class PromotionDAO {
                     Date ed = rs.getDate("end_date");
                     p.setStartDate(sd == null ? null : sd.toLocalDate());
                     p.setEndDate(ed == null ? null : ed.toLocalDate());
-                    p.setActive(rs.getInt("is_active") == 1);
+                    p.setActive(true);
 
                     // Check minimum order amount
                     if (orderTotal < p.getMinOrderAmount()) {

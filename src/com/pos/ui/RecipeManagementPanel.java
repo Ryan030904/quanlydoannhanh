@@ -16,6 +16,10 @@ import com.pos.util.CurrencyUtil;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.text.AbstractDocument;
+import javax.swing.text.AttributeSet;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.DocumentFilter;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -41,6 +45,23 @@ public class RecipeManagementPanel extends JPanel {
 
     private Integer selectedProductId;
     private String selectedProductBaseLabel;
+
+    private static class NumericDocumentFilter extends DocumentFilter {
+        private boolean isAllowed(String s) {
+            if (s == null || s.isEmpty()) return true;
+            return s.matches("[0-9\\.,]*");
+        }
+
+        @Override
+        public void insertString(FilterBypass fb, int offset, String string, AttributeSet attr) throws BadLocationException {
+            if (isAllowed(string)) super.insertString(fb, offset, string, attr);
+        }
+
+        @Override
+        public void replace(FilterBypass fb, int offset, int length, String text, AttributeSet attrs) throws BadLocationException {
+            if (isAllowed(text)) super.replace(fb, offset, length, text, attrs);
+        }
+    }
 
     public RecipeManagementPanel(Runnable onDataChanged) {
         this.onDataChanged = onDataChanged;
@@ -247,6 +268,28 @@ public class RecipeManagementPanel extends JPanel {
             public boolean isCellEditable(int row, int col) {
                 return col == 3;
             }
+
+            public void setValueAt(Object aValue, int row, int column) {
+                if (column == 3) {
+                    if (aValue == null) {
+                        super.setValueAt("", row, column);
+                        return;
+                    }
+                    String s = String.valueOf(aValue).trim();
+                    if (s.isEmpty()) {
+                        super.setValueAt("", row, column);
+                        return;
+                    }
+                    try {
+                        double v = Double.parseDouble(s.replace(',', '.'));
+                        super.setValueAt(CurrencyUtil.formatQuantity(v), row, column);
+                    } catch (Exception ex) {
+                        super.setValueAt(s, row, column);
+                    }
+                    return;
+                }
+                super.setValueAt(aValue, row, column);
+            }
         };
         recipeTable = new JTable(recipeModel);
         ModernTableStyle.apply(recipeTable, true);
@@ -256,6 +299,13 @@ public class RecipeManagementPanel extends JPanel {
         recipeTable.getColumnModel().getColumn(1).setPreferredWidth(200);
         recipeTable.getColumnModel().getColumn(2).setPreferredWidth(100);
         recipeTable.getColumnModel().getColumn(3).setPreferredWidth(80);
+
+        JTextField qtyEditorField = new JTextField();
+        qtyEditorField.setFont(UIConstants.FONT_BODY);
+        if (qtyEditorField.getDocument() instanceof AbstractDocument) {
+            ((AbstractDocument) qtyEditorField.getDocument()).setDocumentFilter(new NumericDocumentFilter());
+        }
+        recipeTable.getColumnModel().getColumn(3).setCellEditor(new DefaultCellEditor(qtyEditorField));
 
         JScrollPane scroll = new JScrollPane(recipeTable);
         scroll.setBorder(BorderFactory.createLineBorder(UIConstants.NEUTRAL_200));
@@ -360,7 +410,7 @@ public class RecipeManagementPanel extends JPanel {
                     l.getIngredientId(),
                     l.getIngredientName(),
                     l.getUnit(),
-                    l.getQuantityNeeded()
+                    CurrencyUtil.formatQuantity(l.getQuantityNeeded())
             });
         }
         String base = this.selectedProductBaseLabel;
@@ -393,11 +443,17 @@ public class RecipeManagementPanel extends JPanel {
         Ingredient ing = showIngredientPickerDialog(ingredients);
         if (ing == null) return;
         int ingId = ing.getId();
-        String qtyStr = JOptionPane.showInputDialog(this, "Nhập lượng dùng cho món (vd: 1, 0.5)", "1");
-        if (qtyStr == null) return;
+        JTextField qtyField = new JTextField("1");
+        qtyField.setFont(UIConstants.FONT_BODY);
+        if (qtyField.getDocument() instanceof AbstractDocument) {
+            ((AbstractDocument) qtyField.getDocument()).setDocumentFilter(new NumericDocumentFilter());
+        }
+        int ok = JOptionPane.showConfirmDialog(this, qtyField, "Nhập lượng dùng cho món (vd: 1, 0.5)", JOptionPane.OK_CANCEL_OPTION);
+        if (ok != JOptionPane.OK_OPTION) return;
+        String qtyStr = qtyField.getText();
         double qty;
         try {
-            qty = Double.parseDouble(qtyStr.trim());
+            qty = Double.parseDouble(qtyStr.trim().replace(',', '.'));
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(this, "Lượng dùng không hợp lệ");
             return;
@@ -415,7 +471,7 @@ public class RecipeManagementPanel extends JPanel {
             }
         }
 
-        recipeModel.addRow(new Object[]{ingId, ing.getName(), ing.getUnit(), qty});
+        recipeModel.addRow(new Object[]{ingId, ing.getName(), ing.getUnit(), CurrencyUtil.formatQuantity(qty)});
     }
 
     private Ingredient showIngredientPickerDialog(List<Ingredient> ingredients) {
@@ -531,7 +587,7 @@ public class RecipeManagementPanel extends JPanel {
             double qty;
             try {
                 Object qObj = recipeModel.getValueAt(r, 3);
-                qty = Double.parseDouble(String.valueOf(qObj).trim());
+                qty = Double.parseDouble(String.valueOf(qObj).trim().replace(',', '.'));
             } catch (Exception ex) {
                 JOptionPane.showMessageDialog(this, "Lượng dùng không hợp lệ ở dòng " + (r + 1));
                 return;

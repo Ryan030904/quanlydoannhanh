@@ -38,18 +38,21 @@ public class ImportInvoiceDAO {
         private final LocalDateTime time;
         private final Integer supplierId;
         private final String supplier;
+		private final List<String> supplierNames;
         private final String employeeName;
         private final String employeeUsername;
         private final double total;
         private final String note;
 
         public ImportInvoiceSummary(ImportInvoiceKey key, String invoiceNo, LocalDateTime time, Integer supplierId, String supplier,
+									   List<String> supplierNames,
                                    String employeeName, String employeeUsername, double total, String note) {
             this.key = key;
             this.invoiceNo = invoiceNo;
             this.time = time;
             this.supplierId = supplierId;
             this.supplier = supplier;
+			this.supplierNames = supplierNames;
             this.employeeName = employeeName;
             this.employeeUsername = employeeUsername;
             this.total = total;
@@ -64,6 +67,7 @@ public class ImportInvoiceDAO {
         public Integer getEmployeeId() { return key != null ? key.getEmployeeId() : null; }
         public Integer getSupplierId() { return supplierId; }
         public String getSupplier() { return supplier; }
+		public List<String> getSupplierNames() { return supplierNames; }
         public String getEmployeeName() { return employeeName; }
         public String getEmployeeUsername() { return employeeUsername; }
         public double getTotal() { return total; }
@@ -73,22 +77,53 @@ public class ImportInvoiceDAO {
 
     public static class ImportInvoiceLine {
         private final String ingredientName;
+		private final String supplierName;
         private final double quantity;
         private final double unitPrice;
         private final double lineTotal;
 
-        public ImportInvoiceLine(String ingredientName, double quantity, double unitPrice, double lineTotal) {
+        public ImportInvoiceLine(String ingredientName, String supplierName, double quantity, double unitPrice, double lineTotal) {
             this.ingredientName = ingredientName;
+			this.supplierName = supplierName;
             this.quantity = quantity;
             this.unitPrice = unitPrice;
             this.lineTotal = lineTotal;
         }
 
         public String getIngredientName() { return ingredientName; }
+		public String getSupplierName() { return supplierName; }
         public double getQuantity() { return quantity; }
         public double getUnitPrice() { return unitPrice; }
         public double getLineTotal() { return lineTotal; }
     }
+
+	private static List<String> findSupplierNamesForInvoice(Connection c, ImportInvoiceKey key, String fallbackSupplier) {
+		List<String> out = new ArrayList<>();
+		if (c == null || key == null) return out;
+		String sql = "SELECT DISTINCT TRIM(COALESCE(i.supplier,'')) AS supplier_name " +
+				"FROM inventory_transactions t " +
+				"LEFT JOIN ingredients i ON i.ingredient_id = t.ingredient_id " +
+				"WHERE t.transaction_type='import' AND DATE(t.transaction_date)=? AND t.employee_id=? AND COALESCE(t.reason,'')=? ";
+		try (PreparedStatement ps = c.prepareStatement(sql)) {
+			ps.setDate(1, java.sql.Date.valueOf(key.getDate()));
+			ps.setInt(2, key.getEmployeeId());
+			ps.setString(3, key.getReason() == null ? "" : key.getReason());
+			try (ResultSet rs = ps.executeQuery()) {
+				while (rs.next()) {
+					String s = rs.getString("supplier_name");
+					if (s == null) continue;
+					s = s.trim();
+					if (s.isEmpty()) continue;
+					out.add(s);
+				}
+			}
+		} catch (SQLException ignored) {
+		}
+		if (out.isEmpty() && fallbackSupplier != null && !fallbackSupplier.trim().isEmpty()) {
+			out.add(fallbackSupplier.trim());
+		}
+		return out;
+	}
 
     public static class ImportFilter {
         public LocalDate fromDate;
@@ -107,6 +142,25 @@ public class ImportInvoiceDAO {
         try (Connection c = DBConnection.getConnection()) {
             return hasTable(c, "inventory_transactions");
         } catch (SQLException ex) {
+            return false;
+        }
+    }
+
+    public static boolean invoiceNoExists(String invoiceNo) {
+        if (invoiceNo == null || invoiceNo.trim().isEmpty()) return false;
+        String inv = invoiceNo.trim();
+        try (Connection c = DBConnection.getConnection()) {
+            if (!hasTable(c, "inventory_transactions")) return false;
+            String sql = "SELECT 1 FROM inventory_transactions " +
+                    "WHERE transaction_type='import' AND COALESCE(reason,'') LIKE ? LIMIT 1";
+            try (PreparedStatement ps = c.prepareStatement(sql)) {
+                ps.setString(1, "%Invoice:" + inv + " %");
+                try (ResultSet rs = ps.executeQuery()) {
+                    return rs.next();
+                }
+            }
+        } catch (SQLException ex) {
+            ex.printStackTrace();
             return false;
         }
     }
@@ -200,7 +254,7 @@ public class ImportInvoiceDAO {
                     String empUsername = rs.getString("employee_username");
 
                     String invoiceNo = parseToken(reason, "Invoice:");
-                    String supplier = parseToken(reason, "Supplier:");
+                    String supplierFromReason = parseToken(reason, "Supplier:");
 
                     Integer supplierId = null;
                     try {
@@ -223,7 +277,12 @@ public class ImportInvoiceDAO {
                     }
 
                     ImportInvoiceKey key = new ImportInvoiceKey(date, employeeId, reason);
-                    list.add(new ImportInvoiceSummary(key, invoiceNo, time, supplierId, supplier, empName, empUsername, total, reason));
+					List<String> supplierNames = findSupplierNamesForInvoice(c, key, supplierFromReason);
+					String supplierDisplay;
+					if (supplierNames.size() == 1) supplierDisplay = supplierNames.get(0);
+					else if (supplierNames.size() > 1) supplierDisplay = "Nhiều NCC (" + supplierNames.size() + ")";
+					else supplierDisplay = supplierFromReason;
+					list.add(new ImportInvoiceSummary(key, invoiceNo, time, supplierId, supplierDisplay, supplierNames, empName, empUsername, total, reason));
                 }
             }
             }
@@ -239,6 +298,7 @@ public class ImportInvoiceDAO {
         if (key == null) return list;
 
         String sql = "SELECT COALESCE(i.ingredient_name, CONCAT('Nguyên liệu#', t.ingredient_id)) AS ingredient_name, " +
+				"TRIM(COALESCE(i.supplier,'')) AS supplier_name, " +
                 "t.quantity, COALESCE(t.unit_price, 0) AS unit_price, COALESCE(t.total_cost, 0) AS total_cost " +
                 "FROM inventory_transactions t " +
                 "LEFT JOIN ingredients i ON i.ingredient_id = t.ingredient_id " +
@@ -254,6 +314,7 @@ public class ImportInvoiceDAO {
                 while (rs.next()) {
                     list.add(new ImportInvoiceLine(
                             rs.getString("ingredient_name"),
+							rs.getString("supplier_name"),
                             rs.getDouble("quantity"),
                             rs.getDouble("unit_price"),
                             rs.getDouble("total_cost")

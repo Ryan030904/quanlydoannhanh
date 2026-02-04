@@ -14,6 +14,10 @@ public class EmployeesTabFrame extends JFrame {
         this.parent = parent;
 
         setTitle("Nhân viên");
+		try {
+			setIconImages(AppFrame.getAppIconImages());
+		} catch (Exception ignored) {
+		}
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         setSize(1200, 760);
         setLocationRelativeTo(parent);

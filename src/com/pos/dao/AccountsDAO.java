@@ -151,9 +151,7 @@ public class AccountsDAO {
             }
         } catch (Exception ignored) {
         }
-        // Xóa tài khoản bằng cách set username = NULL và password_hash = NULL
-        // Nhân viên vẫn tồn tại trong bảng employees nhưng không thể đăng nhập
-        String sql = "UPDATE employees SET username=NULL, password_hash=NULL WHERE employee_id=?";
+        String sql = "DELETE FROM employees WHERE employee_id=?";
         try (Connection c = DBConnection.getConnection();
              PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setInt(1, employeeId);

@@ -158,8 +158,6 @@ public class AccountsManagementPanel extends JPanel {
         current = new ArrayList<>();
 
         for (AccountsDAO.AccountRow r : all) {
-            if (!r.isActive()) continue;
-
             boolean ok = true;
             if (keyword != null && !keyword.isEmpty()) {
                 String un = r.getUsername() == null ? "" : r.getUsername().toLowerCase();
@@ -433,8 +431,7 @@ public class AccountsManagementPanel extends JPanel {
             "Tài khoản: " + un + "\n" +
             "Nhân viên: " + fullName + "\n" +
             "Mã nhân viên: NV" + String.format("%02d", r.getEmployeeId()) + "\n\n" +
-            "Hành động này sẽ XÓA USERNAME và MẬT KHẨU.\n" +
-            "Nhân viên vẫn tồn tại nhưng không thể đăng nhập.", 
+            "Hành động này sẽ XÓA HẲN tài khoản/nhân viên khỏi CSDL.", 
             "Xác nhận xóa tài khoản", 
             JOptionPane.YES_NO_OPTION,
             JOptionPane.WARNING_MESSAGE);
@@ -447,7 +444,7 @@ public class AccountsManagementPanel extends JPanel {
         if (AccountsDAO.deleteAccount(r.getEmployeeId())) {
             JOptionPane.showMessageDialog(this, 
                 "Da xoa tai khoan thanh cong!\n\n" +
-                "Nhân viên NV" + String.format("%02d", r.getEmployeeId()) + " không còn quyền đăng nhập.",
+                "Đã xóa nhân viên NV" + String.format("%02d", r.getEmployeeId()) + " khỏi hệ thống.",
                 "Thành công",
                 JOptionPane.INFORMATION_MESSAGE);
             refreshTable();

@@ -1,6 +1,8 @@
 package com.pos.ui;
 
 import com.pos.dao.OrderDAO;
+import com.pos.dao.CustomerDAO;
+import com.pos.model.Customer;
 import com.pos.util.CurrencyUtil;
 import com.pos.util.PdfExportUtil;
 import com.pos.ui.components.CardPanel;
@@ -419,14 +421,23 @@ public class OrdersManagementPanel extends JPanel {
         headerPanel.add(createLabel(order.getOrderNumber(), false));
         headerPanel.add(createLabel("Ngay lap:", true));
         headerPanel.add(createLabel(order.getOrderTime() != null ? order.getOrderTime().toLocalDate().toString() : "", false));
-        headerPanel.add(createLabel("Nhan vien:", true));
-        headerPanel.add(createLabel(order.getEmployeeName() != null ? order.getEmployeeName() : (order.getEmployeeId() != null ? "NV" + String.format("%02d", order.getEmployeeId()) : ""), false));
-        headerPanel.add(createLabel("Khach hang:", true));
-        headerPanel.add(createLabel(order.getCustomerName() != null ? order.getCustomerName() : (order.getCustomerId() != null ? "KH" + String.format("%02d", order.getCustomerId()) : ""), false));
-        
-        dialog.add(headerPanel, BorderLayout.NORTH);
+		headerPanel.add(createLabel("Nhan vien:", true));
+		headerPanel.add(createLabel(order.getEmployeeName() != null ? order.getEmployeeName() : (order.getEmployeeId() != null ? "NV" + String.format("%02d", order.getEmployeeId()) : ""), false));
+		headerPanel.add(createLabel("Khach hang:", true));
+		headerPanel.add(createLabel(order.getCustomerName() != null ? order.getCustomerName() : (order.getCustomerId() != null ? "KH" + String.format("%02d", order.getCustomerId()) : ""), false));
 
-        // Items table
+		String customerPhone = parseCustomerPhone(order.getNotes());
+		if (customerPhone == null || customerPhone.trim().isEmpty()) {
+			customerPhone = resolveCustomerPhoneByName(order.getCustomerName());
+		}
+		if (customerPhone == null || customerPhone.trim().isEmpty()) customerPhone = "-";
+		final String customerPhoneForPrint = customerPhone;
+
+		headerPanel.add(createLabel("SDT:", true));
+		headerPanel.add(createLabel(customerPhone, false));
+
+		dialog.add(headerPanel, BorderLayout.NORTH);
+
         DefaultTableModel detailModel = new DefaultTableModel(new Object[]{"STT", "Ten mon", "SL", "Don gia", "Thanh tien"}, 0) {
             public boolean isCellEditable(int row, int col) { return false; }
         };
@@ -466,10 +477,14 @@ public class OrdersManagementPanel extends JPanel {
         
         ModernButton printBtn = new ModernButton("In", ModernButton.ButtonType.SECONDARY, ModernButton.ButtonSize.SMALL);
         printBtn.addActionListener(e -> {
+			String phoneLine = customerPhoneForPrint == null || customerPhoneForPrint.trim().isEmpty() || "-".equals(customerPhoneForPrint.trim())
+					? ""
+					: ("\nSĐT: " + customerPhoneForPrint.trim());
             String headerInfo = "Mã HĐ: " + order.getOrderNumber() + "\n" +
                 "Ngày: " + (order.getOrderTime() != null ? order.getOrderTime().format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")) : "") + "\n" +
                 "Nhân viên: " + (order.getEmployeeName() != null ? order.getEmployeeName() : "") + "\n" +
-                "Khách hàng: " + (order.getCustomerName() != null ? order.getCustomerName() : "");
+                "Khách hàng: " + (order.getCustomerName() != null ? order.getCustomerName() : "") +
+				phoneLine;
             String footerInfo = "Giảm giá: " + CurrencyUtil.format(order.getDiscount()) + "\n" +
                 "TỔNG CỘNG: " + CurrencyUtil.format(order.getTotal());
             PdfExportUtil.exportTableToPdfDemo(detailTable, "HÓA ĐƠN BÁN HÀNG", headerInfo, footerInfo, 
@@ -531,4 +546,48 @@ public class OrdersManagementPanel extends JPanel {
         label.setFont(bold ? UIConstants.FONT_BODY_BOLD : UIConstants.FONT_BODY);
         return label;
     }
+
+	private String resolveCustomerPhoneByName(String customerName) {
+		if (customerName == null || customerName.trim().isEmpty()) return null;
+		String name = customerName.trim();
+		try {
+			List<Customer> list = CustomerDAO.findByFilter(name, null, false);
+			if (list == null || list.isEmpty()) return null;
+			String onlyPhone = null;
+			for (Customer c : list) {
+				if (c == null) continue;
+				String fn = c.getFullName() == null ? "" : c.getFullName().trim();
+				if (!fn.equalsIgnoreCase(name)) continue;
+				String p = c.getPhone() == null ? "" : c.getPhone().trim();
+				if (p.isEmpty()) continue;
+				if (onlyPhone == null) onlyPhone = p;
+				else if (!onlyPhone.equals(p)) return null;
+			}
+			return onlyPhone;
+		} catch (Exception ignored) {
+			return null;
+		}
+	}
+
+	private String parseCustomerPhone(String notes) {
+		if (notes == null) return null;
+		String s = notes.trim();
+		String[] keys = {"SĐT:", "SDT:", "Sdt:", "Sđt:"};
+		int idx = -1;
+		String key = null;
+		for (String k : keys) {
+			int p = s.indexOf(k);
+			if (p >= 0) {
+				idx = p;
+				key = k;
+				break;
+			}
+		}
+		if (idx < 0 || key == null) return null;
+		String sub = s.substring(idx + key.length()).trim();
+		int sep = sub.indexOf('|');
+		if (sep >= 0) sub = sub.substring(0, sep).trim();
+		if (sub.isEmpty()) return null;
+		return sub;
+	}
 }

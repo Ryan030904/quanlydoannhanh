@@ -12,7 +12,7 @@ public class ItemDAO {
         List<Item> list = new ArrayList<>();
         String sql = "SELECT product_id AS id, product_code AS code, product_name AS name, category_id, " +
             "price, description, image_url AS image_path " +
-            "FROM products WHERE is_available = 1 ORDER BY product_id";
+            "FROM products ORDER BY product_id";
         try (Connection c = DBConnection.getConnection();
              PreparedStatement ps = c.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
@@ -33,9 +33,6 @@ public class ItemDAO {
                         "FROM products WHERE 1=1");
         List<Object> params = new ArrayList<>();
 
-        if (!includeInactive) {
-            sql.append(" AND is_available = 1");
-        }
         if (keyword != null && !keyword.trim().isEmpty()) {
             sql.append(" AND product_name LIKE ?");
             params.add("%" + keyword.trim() + "%");
@@ -68,7 +65,7 @@ public class ItemDAO {
     public static List<Item> findByFilter(String keyword, Integer categoryId) {
         List<Item> list = new ArrayList<>();
         StringBuilder sql = new StringBuilder(
-                "SELECT product_id AS id, product_code AS code, product_name AS name, category_id, price, description, image_url AS image_path FROM products WHERE is_available = 1");
+                "SELECT product_id AS id, product_code AS code, product_name AS name, category_id, price, description, image_url AS image_path FROM products WHERE 1=1");
         List<Object> params = new ArrayList<>();
 
         if (keyword != null && !keyword.trim().isEmpty()) {
@@ -117,7 +114,7 @@ public class ItemDAO {
                 ps.setDouble(5, item.getPrice());
                 ps.setString(6, item.getDescription());
                 ps.setString(7, item.getImagePath());
-                ps.setInt(8, item.isActive() ? 1 : 0);
+                ps.setInt(8, 1);
                 int affected = ps.executeUpdate();
                 if (affected > 0) {
                     item.setId(nextId);
@@ -141,7 +138,7 @@ public class ItemDAO {
             ps.setDouble(4, item.getPrice());
             ps.setString(5, item.getDescription());
             ps.setString(6, item.getImagePath());
-            ps.setInt(7, item.isActive() ? 1 : 0);
+            ps.setInt(7, 1);
             ps.setInt(8, item.getId());
             return ps.executeUpdate() > 0;
         } catch (SQLException ex) {

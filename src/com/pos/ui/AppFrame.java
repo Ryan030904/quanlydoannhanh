@@ -11,7 +11,6 @@ import com.pos.util.CurrencyUtil;
 import com.pos.dao.CategoryDAO;
 import com.pos.dao.InventoryDAO;
 import com.pos.dao.ItemDAO;
-import com.pos.db.DBConnection;
 import com.pos.model.CartItem;
 import com.pos.model.Category;
 import com.pos.model.Item;
@@ -45,6 +44,7 @@ public class AppFrame extends JFrame {
 	private final Color ACCENT = UIConstants.PRIMARY_500;
 	private final Font HEADER_FONT = UIConstants.FONT_HEADING_3;
 	private final Font NORMAL_FONT = UIConstants.FONT_BODY;
+	private static List<Image> APP_ICON_IMAGES;
 	// singleton instance to allow other frames to request menu refresh
 	private static AppFrame instance;
 	private JPanel menuGrid;
@@ -75,12 +75,17 @@ public class AppFrame extends JFrame {
 	private ItemManagementPanel itemManagementPanel;
 	private RecipeManagementPanel recipeManagementPanel;
 	private IngredientManagementPanel ingredientManagementPanel;
+	private CustomersManagementPanel customersManagementPanel;
 	private SuppliersManagementPanel suppliersManagementPanel;
 
 	public AppFrame() {
 		// register instance for refresh callbacks
 		AppFrame.instance = this;
 		setTitle("POS - Quản lý đồ ăn nhanh");
+		try {
+			setIconImages(getAppIconImages());
+		} catch (Exception ignored) {
+		}
 		setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 		// Kích thước tối thiểu khi thu nhỏ
 		final int MIN_WIDTH = 1200;
@@ -413,10 +418,12 @@ public class AppFrame extends JFrame {
 		this.importHistoryPanel = new ImportHistoryManagementPanel(null);
 		this.tabCards.add(wrapTabPage("Hóa đơn nhập", this.importHistoryPanel), "Hóa đơn nhập");
 		this.tabCards.add(wrapTabPage("Khuyến mãi", new PromotionsManagementPanel(null)), "Khuyến mãi");
-		this.tabCards.add(wrapTabPage("Khách hàng", new CustomersManagementPanel(this, null)), "Khách hàng");
+		this.customersManagementPanel = new CustomersManagementPanel(this, null);
+		this.tabCards.add(wrapTabPage("Khách hàng", this.customersManagementPanel), "Khách hàng");
 		this.tabCards.add(wrapTabPage("Nhân viên", new EmployeesManagementPanel(null)), "Nhân viên");
 		this.suppliersManagementPanel = new SuppliersManagementPanel(() -> {
 			if (ingredientManagementPanel != null) ingredientManagementPanel.onSuppliersChanged();
+			if (importGoodsPanel != null) importGoodsPanel.refreshSuppliers();
 		});
 		this.tabCards.add(wrapTabPage("Nhà cung cấp", this.suppliersManagementPanel), "Nhà cung cấp");
 		this.tabCards.add(wrapTabPage("Tài khoản", new AccountsManagementPanel(null)), "Tài khoản");
@@ -738,6 +745,47 @@ public class AppFrame extends JFrame {
 		return instance;
 	}
 
+	public static synchronized List<Image> getAppIconImages() {
+		if (APP_ICON_IMAGES != null && !APP_ICON_IMAGES.isEmpty()) return APP_ICON_IMAGES;
+		List<Image> out = new ArrayList<>();
+		File svgFile = new File("img/logo.svg");
+		int[] sizes = new int[]{16, 20, 24, 32, 40, 48, 64, 96};
+		for (int s : sizes) {
+			BufferedImage bi = renderSvgToBufferedImage(svgFile, s, s);
+			if (bi != null) out.add(bi);
+		}
+		if (out.isEmpty()) {
+			try {
+				BufferedImage img = ImageIO.read(new File("img/logo.png"));
+				if (img != null) out.add(img);
+			} catch (Exception ignored) {
+			}
+		}
+		APP_ICON_IMAGES = out;
+		return APP_ICON_IMAGES;
+	}
+
+	private static BufferedImage renderSvgToBufferedImage(File svgFile, int width, int height) {
+		if (svgFile == null || !svgFile.exists()) return null;
+		try {
+			PNGTranscoder transcoder = new PNGTranscoder();
+			transcoder.addTranscodingHint(PNGTranscoder.KEY_WIDTH, (float) width);
+			transcoder.addTranscodingHint(PNGTranscoder.KEY_HEIGHT, (float) height);
+
+			TranscoderInput input = new TranscoderInput(svgFile.toURI().toString());
+			ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+			TranscoderOutput output = new TranscoderOutput(outputStream);
+			transcoder.transcode(input, output);
+			outputStream.flush();
+
+			byte[] imgData = outputStream.toByteArray();
+			ByteArrayInputStream inputStream = new ByteArrayInputStream(imgData);
+			return ImageIO.read(inputStream);
+		} catch (Exception ignored) {
+			return null;
+		}
+	}
+
 	public void navigateToTab(String tabName) {
 		if (tabName == null || tabName.trim().isEmpty()) return;
 		if (this.tabCards == null || this.tabCardLayout == null) return;
@@ -746,9 +794,26 @@ public class AppFrame extends JFrame {
 		if ("Hóa đơn".equals(tabName.trim()) && this.ordersPanel != null) {
 			this.ordersPanel.refreshData();
 		}
+		// Auto refresh ingredients panel when switching to it
+		if ("Nguyên liệu".equals(tabName.trim()) && this.ingredientManagementPanel != null) {
+			this.ingredientManagementPanel.refreshTable();
+		}
+		// Auto refresh import goods panel when switching to it
+		if ("Nhập hàng".equals(tabName.trim()) && this.importGoodsPanel != null) {
+			this.importGoodsPanel.refreshIngredients();
+		}
 		// Auto refresh import history panel when switching to it
 		if ("Hóa đơn nhập".equals(tabName.trim()) && this.importHistoryPanel != null) {
 			this.importHistoryPanel.refreshData();
+		}
+		if ("Khách hàng".equals(tabName.trim()) && this.customersManagementPanel != null) {
+			this.customersManagementPanel.refreshTable();
+		}
+	}
+
+	public void refreshCustomers() {
+		if (this.customersManagementPanel != null) {
+			this.customersManagementPanel.refreshTable();
 		}
 	}
 
@@ -811,26 +876,7 @@ public class AppFrame extends JFrame {
 	private void addToCart(Item item, int qty) {
 		if (item == null) return;
 		if (qty <= 0) return;
-		int nextQty = qty;
 		CartItem existing = cart.get(item.getId());
-		if (existing != null) nextQty = existing.getQuantity() + qty;
-		try (java.sql.Connection c = DBConnection.getConnection()) {
-			List<CartItem> check = new ArrayList<>();
-			for (CartItem ci : cart.values()) {
-				if (ci == null || ci.getItem() == null) continue;
-				if (ci.getItem().getId() == item.getId()) continue;
-				check.add(new CartItem(ci.getItem(), ci.getQuantity()));
-			}
-			check.add(new CartItem(item, nextQty));
-			List<InventoryDAO.IngredientShortage> shortages = InventoryDAO.findIngredientShortagesForCart(c, check);
-			if (shortages != null && !shortages.isEmpty()) {
-				JOptionPane.showMessageDialog(this, buildIngredientShortageMessage(shortages));
-				return;
-			}
-		} catch (Exception ex) {
-			JOptionPane.showMessageDialog(this, "Không thể kiểm tra tồn nguyên liệu: " + ex.getMessage());
-			return;
-		}
 		if (existing == null) {
 			cart.put(item.getId(), new CartItem(item, qty));
 		} else {
@@ -933,6 +979,7 @@ public class AppFrame extends JFrame {
 		if (tfSoLuong != null) tfSoLuong.setText("");
 		reloadCategories();
 		refreshMenu();
+		if (ingredientManagementPanel != null) ingredientManagementPanel.refreshTable();
 		if (ordersPanel != null) ordersPanel.refreshData();
 		if (importHistoryPanel != null) importHistoryPanel.refreshData();
 	}

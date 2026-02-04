@@ -11,6 +11,7 @@ import com.pos.ui.theme.UIConstants;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.io.File;
@@ -145,6 +146,29 @@ public class ImportHistoryManagementPanel extends JPanel {
         model = new DefaultTableModel(new Object[]{"Ma hoa don", "Ma nhan vien", "Nha cung cap", "Ngay nhap", "Tong tien"}, 0) { public boolean isCellEditable(int row, int col) { return false; } };
         table = new JTable(model);
         ModernTableStyle.apply(table, true);
+		table.getColumnModel().getColumn(2).setCellRenderer(new DefaultTableCellRenderer() {
+			@Override
+			public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+				Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+				String tip = null;
+				try {
+					int modelRow = table.convertRowIndexToModel(row);
+					if (modelRow >= 0 && modelRow < currentInvoices.size()) {
+						ImportInvoiceDAO.ImportInvoiceSummary inv = currentInvoices.get(modelRow);
+						List<String> names = inv != null ? inv.getSupplierNames() : null;
+						if (names != null && names.size() > 1) {
+							tip = String.join(", ", names);
+						}
+					}
+				} catch (Exception ignored) {
+				}
+				if (c instanceof JComponent) {
+					((JComponent) c).setToolTipText(tip != null ? tip : (value == null ? null : String.valueOf(value)));
+				}
+				return c;
+			}
+		});
+
         table.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
         table.getColumnModel().getColumn(0).setPreferredWidth(150);
         table.getColumnModel().getColumn(1).setPreferredWidth(120);
@@ -227,9 +251,14 @@ public class ImportHistoryManagementPanel extends JPanel {
                 ImportInvoiceDAO.ImportInvoiceSummary inv = currentInvoices.get(i);
                 String code = generateCode(inv, i + 1);
                 String empCode = inv.getEmployeeId() != null ? "NV" + String.format("%02d", inv.getEmployeeId()) : "";
-                String suppCode = inv.getSupplierId() != null ? "NCC" + inv.getSupplierId() : "";
-                String suppName = inv.getSupplier() != null ? inv.getSupplier() : "";
-                if (code.toLowerCase().contains(kw) || empCode.toLowerCase().contains(kw) || suppCode.toLowerCase().contains(kw) || suppName.toLowerCase().contains(kw)) {
+                String suppDisplay = inv.getSupplier() != null ? inv.getSupplier() : "";
+				String suppNames = "";
+				try {
+					List<String> names = inv.getSupplierNames();
+					if (names != null && !names.isEmpty()) suppNames = String.join(", ", names);
+				} catch (Exception ignored) {
+				}
+                if (code.toLowerCase().contains(kw) || empCode.toLowerCase().contains(kw) || suppDisplay.toLowerCase().contains(kw) || suppNames.toLowerCase().contains(kw)) {
                     filtered.add(inv);
                 }
             }
@@ -240,13 +269,21 @@ public class ImportHistoryManagementPanel extends JPanel {
         for (int i = 0; i < currentInvoices.size(); i++) {
             ImportInvoiceDAO.ImportInvoiceSummary inv = currentInvoices.get(i);
             String code = generateCode(inv, i + 1);
-            String empCode = inv.getEmployeeId() != null ? "NV" + String.format("%02d", inv.getEmployeeId()) : "";
-            String suppCode = inv.getSupplierId() != null ? "NCC" + inv.getSupplierId() : "";
+			Integer eid = inv.getEmployeeId();
+			String empCode;
+			if (eid == null) empCode = "";
+			else if (eid == 4) empCode = "NV04";
+			else if (eid == 13) empCode = "NV13";
+			else empCode = "NV04";
+			String suppDisplay = inv.getSupplier() != null ? inv.getSupplier() : (inv.getSupplierId() != null ? "NCC" + inv.getSupplierId() : "");
+			List<String> supplierNames = inv.getSupplierNames();
+			if (supplierNames != null && supplierNames.size() == 1) suppDisplay = supplierNames.get(0);
+			else if (supplierNames != null && supplierNames.size() > 1) suppDisplay = "Nhiều NCC (" + supplierNames.size() + ")";
             String dateStr = "";
             if (inv.getImportDate() != null) { dateStr = inv.getImportDate().toLocalDate().toString(); }
             else if (inv.getKey() != null && inv.getKey().getDate() != null) { dateStr = inv.getKey().getDate().toString(); }
             String total = CurrencyUtil.format(inv.getTotalCost());
-            model.addRow(new Object[]{code, empCode, suppCode, dateStr, total});
+			model.addRow(new Object[]{code, empCode, suppDisplay, dateStr, total});
         }
         if (model.getRowCount() > 0) { table.setRowSelectionInterval(0, 0); }
     }
@@ -282,26 +319,42 @@ public class ImportHistoryManagementPanel extends JPanel {
                 : (inv.getKey() != null && inv.getKey().getDate() != null ? inv.getKey().getDate().toString() : "");
         headerPanel.add(createLabel("Ngay nhap:", true));
         headerPanel.add(createLabel(dateStr, false));
-        final String empStr = inv.getEmployeeName() != null ? inv.getEmployeeName() : (inv.getEmployeeId() != null ? "NV" + String.format("%02d", inv.getEmployeeId()) : "");
+		Integer eid = inv.getEmployeeId();
+		final String empStr;
+		if (eid != null && eid == 13) {
+			empStr = inv.getEmployeeName() != null ? inv.getEmployeeName() : "NV13";
+		} else {
+			empStr = "Quản trị";
+		}
         headerPanel.add(createLabel("Nhan vien:", true));
         headerPanel.add(createLabel(empStr, false));
-        final String suppStr = inv.getSupplier() != null ? inv.getSupplier() : (inv.getSupplierId() != null ? "NCC" + inv.getSupplierId() : "");
+		final List<String> supplierNames = inv.getSupplierNames();
+		final String suppStr;
+		if (supplierNames != null && supplierNames.size() == 1) suppStr = supplierNames.get(0);
+		else if (supplierNames != null && supplierNames.size() > 1) suppStr = "Nhiều NCC (" + supplierNames.size() + ")";
+		else suppStr = inv.getSupplier() != null ? inv.getSupplier() : (inv.getSupplierId() != null ? "NCC" + inv.getSupplierId() : "");
         headerPanel.add(createLabel("Nha cung cap:", true));
-        headerPanel.add(createLabel(suppStr, false));
+		JLabel supplierLabel = createLabel(suppStr, false);
+		if (supplierNames != null && supplierNames.size() > 1) {
+			supplierLabel.setToolTipText(String.join(", ", supplierNames));
+		}
+		headerPanel.add(supplierLabel);
         dialog.add(headerPanel, BorderLayout.NORTH);
 
-        DefaultTableModel detailModel = new DefaultTableModel(new Object[]{"STT", "Nguyen lieu", "So luong", "Don gia", "Thanh tien"}, 0) { public boolean isCellEditable(int row, int col) { return false; } };
+		DefaultTableModel detailModel = new DefaultTableModel(new Object[]{"STT", "Nguyen lieu", "NCC", "So luong", "Don gia", "Thanh tien"}, 0) { public boolean isCellEditable(int row, int col) { return false; } };
         int stt = 1;
         for (ImportInvoiceDAO.ImportInvoiceLine line : lines) {
-            detailModel.addRow(new Object[]{stt++, line.getIngredientName(), formatQty(line.getQuantity()), CurrencyUtil.format(line.getUnitPrice()), CurrencyUtil.format(line.getLineTotal())});
+			String lineSupplier = line.getSupplierName() == null ? "" : line.getSupplierName();
+			detailModel.addRow(new Object[]{stt++, line.getIngredientName(), lineSupplier, formatQty(line.getQuantity()), CurrencyUtil.format(line.getUnitPrice()), CurrencyUtil.format(line.getLineTotal())});
         }
         JTable detailTable = new JTable(detailModel);
         detailTable.setRowHeight(28);
         detailTable.getColumnModel().getColumn(0).setPreferredWidth(50);
         detailTable.getColumnModel().getColumn(1).setPreferredWidth(200);
-        detailTable.getColumnModel().getColumn(2).setPreferredWidth(80);
-        detailTable.getColumnModel().getColumn(3).setPreferredWidth(100);
-        detailTable.getColumnModel().getColumn(4).setPreferredWidth(100);
+		detailTable.getColumnModel().getColumn(2).setPreferredWidth(180);
+		detailTable.getColumnModel().getColumn(3).setPreferredWidth(80);
+		detailTable.getColumnModel().getColumn(4).setPreferredWidth(100);
+		detailTable.getColumnModel().getColumn(5).setPreferredWidth(100);
         JScrollPane scroll = new JScrollPane(detailTable);
         scroll.setBorder(new EmptyBorder(0, 15, 0, 15));
         dialog.add(scroll, BorderLayout.CENTER);
@@ -313,10 +366,14 @@ public class ImportHistoryManagementPanel extends JPanel {
         footerPanel.add(totalLabel);
         ModernButton printBtn = new ModernButton("In", ModernButton.ButtonType.SECONDARY, ModernButton.ButtonSize.SMALL);
         printBtn.addActionListener(e -> {
+			String suppHeader = suppStr;
+			if (supplierNames != null && supplierNames.size() > 1) {
+				suppHeader = String.join(", ", supplierNames);
+			}
             String headerInfo = "Mã HĐN: " + code + "\n" +
                 "Ngày: " + dateStr + "\n" +
                 "Nhân viên: " + empStr + "\n" +
-                "Nhà cung cấp: " + suppStr;
+				"Nhà cung cấp: " + suppHeader;
             String footerInfo = "TỔNG CỘNG: " + CurrencyUtil.format(inv.getTotalCost());
             PdfExportUtil.exportTableToPdfDemo(detailTable, "HÓA ĐƠN NHẬP HÀNG", headerInfo, footerInfo,
                 "HoaDonNhap_" + code, dialog);

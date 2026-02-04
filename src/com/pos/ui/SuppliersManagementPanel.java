@@ -1,7 +1,9 @@
 package com.pos.ui;
 
+import com.pos.Session;
 import com.pos.dao.SupplierDAO;
 import com.pos.model.Supplier;
+import com.pos.service.PermissionService;
 import com.pos.ui.components.CardPanel;
 import com.pos.ui.components.ModernButton;
 import com.pos.ui.components.ModernTableStyle;
@@ -148,6 +150,13 @@ public class SuppliersManagementPanel extends JPanel {
         addBtn.setPreferredSize(new Dimension(120, 36));
         editBtn.setPreferredSize(new Dimension(80, 36));
         deleteBtn.setPreferredSize(new Dimension(80, 36));
+
+		boolean canMutate = PermissionService.canMutateTab(Session.getCurrentUser(), "Nhà cung cấp");
+		if (!canMutate) {
+			addBtn.setVisible(false);
+			editBtn.setVisible(false);
+			deleteBtn.setVisible(false);
+		}
 
         btns.add(addBtn);
         btns.add(editBtn);

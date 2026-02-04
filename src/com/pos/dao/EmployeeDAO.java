@@ -58,7 +58,7 @@ public class EmployeeDAO {
 
     public static List<Employee> findAllActive() {
         List<Employee> list = new ArrayList<>();
-        String sql = "SELECT employee_id, full_name, username, position, is_active FROM employees WHERE is_active = 1 ORDER BY employee_id";
+        String sql = "SELECT employee_id, full_name, username, position, is_active FROM employees ORDER BY employee_id";
         try (Connection c = DBConnection.getConnection();
              PreparedStatement ps = c.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
@@ -94,10 +94,6 @@ public class EmployeeDAO {
                             (hasHireDate ? ", hire_date" : "") +
                             ", is_active FROM employees WHERE 1=1");
             List<Object> params = new ArrayList<>();
-
-            if (!includeInactive) {
-                sql.append(" AND is_active = 1");
-            }
             if (keyword != null && !keyword.trim().isEmpty()) {
                 sql.append(" AND (full_name LIKE ? OR email LIKE ?");
                 params.add("%" + keyword.trim() + "%");
@@ -239,7 +235,7 @@ public class EmployeeDAO {
                 ps.setString(idx++, e.getFullName());
                 ps.setString(idx++, e.getEmail());
                 ps.setString(idx++, e.getPosition());
-                ps.setInt(idx++, e.isActive() ? 1 : 0);
+                ps.setInt(idx++, 1);
                 if (hasPhone) ps.setString(idx++, e.getPhone());
                 if (hasUsername) ps.setString(idx++, e.getUsername());
                 if (hasSalary) {

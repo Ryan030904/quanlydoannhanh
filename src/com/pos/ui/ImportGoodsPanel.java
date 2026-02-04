@@ -3,6 +3,7 @@ package com.pos.ui;
 import com.pos.Session;
 import com.pos.dao.EmployeeDAO;
 import com.pos.dao.IngredientDAO;
+import com.pos.dao.ImportInvoiceDAO;
 import com.pos.dao.SupplierDAO;
 import com.pos.db.DBConnection;
 import com.pos.model.Employee;
@@ -21,6 +22,10 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.text.AbstractDocument;
+import javax.swing.text.AttributeSet;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.DocumentFilter;
 import java.awt.*;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
@@ -30,7 +35,11 @@ import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Panel Nhập hàng - Layout cố định, không header, hiển thị đầy đủ
@@ -62,6 +71,31 @@ public class ImportGoodsPanel extends JPanel {
     private DefaultTableModel detailModel;
     private JTable detailTable;
     private boolean recalculating;
+
+	private static class PositiveIntegerDocumentFilter extends DocumentFilter {
+		private boolean isAllowedResult(FilterBypass fb, int offset, int length, String text) {
+			try {
+				String cur = fb.getDocument().getText(0, fb.getDocument().getLength());
+				String insert = text == null ? "" : text;
+				String next = new StringBuilder(cur).replace(offset, offset + length, insert).toString();
+				if (next.isEmpty()) return true;
+				if (!next.matches("[0-9]+")) return false;
+				return !next.startsWith("0");
+			} catch (Exception ex) {
+				return false;
+			}
+		}
+
+		@Override
+		public void insertString(FilterBypass fb, int offset, String string, AttributeSet attr) throws BadLocationException {
+			if (isAllowedResult(fb, offset, 0, string)) super.insertString(fb, offset, string, attr);
+		}
+
+		@Override
+		public void replace(FilterBypass fb, int offset, int length, String text, AttributeSet attrs) throws BadLocationException {
+			if (isAllowedResult(fb, offset, length, text)) super.replace(fb, offset, length, text, attrs);
+		}
+	}
 
     public ImportGoodsPanel(AppFrame parent) {
         this.parent = parent;
@@ -131,6 +165,10 @@ public class ImportGoodsPanel extends JPanel {
         form.add(createLabel("Mã phiếu:"), gbc);
         gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
         invoiceNoField = createTextField();
+        invoiceNoField.setEditable(false);
+        invoiceNoField.setBackground(UIConstants.NEUTRAL_100);
+        invoiceNoField.setFocusable(false);
+        invoiceNoField.setRequestFocusEnabled(false);
         form.add(invoiceNoField, gbc);
         gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
 
@@ -152,6 +190,8 @@ public class ImportGoodsPanel extends JPanel {
         supplierCombo = new JComboBox<>();
         supplierCombo.setFont(UIConstants.FONT_BODY);
         supplierCombo.setPreferredSize(new Dimension(180, 28));
+        // Khi thay đổi NCC thì lọc lại nguyên liệu theo NCC đó
+        supplierCombo.addActionListener(e -> filterIngredients());
         form.add(supplierCombo, gbc);
         gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
 
@@ -268,7 +308,7 @@ public class ImportGoodsPanel extends JPanel {
         card.add(searchPanel, BorderLayout.NORTH);
 
         // Table nguyên liệu
-        ingredientModel = new DefaultTableModel(new Object[]{"Mã", "Tên nguyên liệu", "ĐV", "Tồn", "Giá"}, 0) {
+        ingredientModel = new DefaultTableModel(new Object[]{"STT", "Tên nguyên liệu", "ĐV", "Tồn", "Giá", "ID"}, 0) {
             public boolean isCellEditable(int row, int col) { return false; }
         };
         ingredientTable = new JTable(ingredientModel);
@@ -280,6 +320,11 @@ public class ImportGoodsPanel extends JPanel {
         ingredientTable.getColumnModel().getColumn(2).setPreferredWidth(45);
         ingredientTable.getColumnModel().getColumn(3).setPreferredWidth(50);
         ingredientTable.getColumnModel().getColumn(4).setPreferredWidth(70);
+
+        // Ẩn cột ID (dùng nội bộ để thêm nguyên liệu đúng)
+        ingredientTable.getColumnModel().getColumn(5).setMinWidth(0);
+        ingredientTable.getColumnModel().getColumn(5).setMaxWidth(0);
+        ingredientTable.getColumnModel().getColumn(5).setPreferredWidth(0);
 
         JScrollPane scroll = new JScrollPane(ingredientTable);
         scroll.setBorder(BorderFactory.createLineBorder(UIConstants.NEUTRAL_200));
@@ -403,28 +448,9 @@ public class ImportGoodsPanel extends JPanel {
         qtyEditor.setHorizontalAlignment(JTextField.CENTER);
         qtyEditor.setFont(UIConstants.FONT_BODY);
         // Chỉ cho phép nhập số
-        qtyEditor.addKeyListener(new java.awt.event.KeyAdapter() {
-            @Override
-            public void keyTyped(java.awt.event.KeyEvent e) {
-                char c = e.getKeyChar();
-                if (!Character.isDigit(c) && c != java.awt.event.KeyEvent.VK_BACK_SPACE && c != java.awt.event.KeyEvent.VK_DELETE) {
-                    e.consume(); // Không cho nhập ký tự không phải số
-                    return;
-                }
-
-                // Không cho nhập số 0 ở đầu (nhưng vẫn cho 10, 20...)
-                if (c == '0') {
-                    String text = qtyEditor.getText() == null ? "" : qtyEditor.getText();
-                    int selStart = qtyEditor.getSelectionStart();
-                    int selEnd = qtyEditor.getSelectionEnd();
-                    boolean replacingAll = !text.isEmpty() && selStart == 0 && selEnd == text.length();
-                    boolean emptyAfterReplace = text.isEmpty() || replacingAll;
-                    if (emptyAfterReplace) {
-                        e.consume();
-                    }
-                }
-            }
-        });
+        if (qtyEditor.getDocument() instanceof AbstractDocument) {
+            ((AbstractDocument) qtyEditor.getDocument()).setDocumentFilter(new PositiveIntegerDocumentFilter());
+        }
         DefaultCellEditor qtyCellEditor = new DefaultCellEditor(qtyEditor) {
             @Override
             public boolean stopCellEditing() {
@@ -476,7 +502,7 @@ public class ImportGoodsPanel extends JPanel {
         btnPanel.setOpaque(false);
 
         ModernButton cancelBtn = new ModernButton("Hủy", ModernButton.ButtonType.SECONDARY, ModernButton.ButtonSize.MEDIUM);
-        ModernButton saveBtn = new ModernButton("Lưu phiếu nhập", ModernButton.ButtonType.SUCCESS, ModernButton.ButtonSize.MEDIUM);
+        ModernButton saveBtn = new ModernButton("Nhập", ModernButton.ButtonType.SUCCESS, ModernButton.ButtonSize.MEDIUM);
         cancelBtn.setPreferredSize(new Dimension(90, 36));
         saveBtn.setPreferredSize(new Dimension(130, 36));
 
@@ -513,8 +539,7 @@ public class ImportGoodsPanel extends JPanel {
     }
 
     private void initDefaultValues() {
-        String defaultNo = "HDN-" + LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd")) + "-" + (System.currentTimeMillis() % 1000);
-        invoiceNoField.setText(defaultNo);
+        invoiceNoField.setText(generateUniqueInvoiceNo());
 
         User u = Session.getCurrentUser();
         if (u != null) {
@@ -522,6 +547,16 @@ public class ImportGoodsPanel extends JPanel {
             selectedEmployeeId = u.getId();
         }
         updateSummary();
+    }
+
+    private String generateUniqueInvoiceNo() {
+        String prefix = "HDN-" + LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd")) + "-";
+        for (int i = 0; i < 50; i++) {
+            int rnd = (int) (Math.random() * 900000) + 100000;
+            String candidate = prefix + rnd;
+            if (!ImportInvoiceDAO.invoiceNoExists(candidate)) return candidate;
+        }
+        return prefix + System.currentTimeMillis();
     }
 
     private void loadSuppliers() {
@@ -532,16 +567,37 @@ public class ImportGoodsPanel extends JPanel {
                 supplierCombo.addItem(s);
             }
         }
-        // Khi thay đổi NCC thì lọc lại nguyên liệu theo NCC đó
-        supplierCombo.addActionListener(e -> filterIngredients());
+    }
+
+    public void refreshSuppliers() {
+        if (supplierCombo == null) return;
+
+        Integer selectedId = null;
+        Object selected = supplierCombo.getSelectedItem();
+        if (selected instanceof Supplier) {
+            selectedId = ((Supplier) selected).getId();
+        }
+
+        loadSuppliers();
+
+        if (selectedId != null) {
+            for (int i = 0; i < supplierCombo.getItemCount(); i++) {
+                Object it = supplierCombo.getItemAt(i);
+                if (it instanceof Supplier && ((Supplier) it).getId() == selectedId) {
+                    supplierCombo.setSelectedIndex(i);
+                    break;
+                }
+            }
+        }
     }
 
     private void loadIngredients() {
-        allIngredients = IngredientDAO.findAll();
+        allIngredients = IngredientDAO.findByFilter("", null, false, false);
         filterIngredients();
     }
 
     public void refreshIngredients() {
+        refreshSuppliers();
         loadIngredients();
 
         if (detailModel != null) {
@@ -581,6 +637,7 @@ public class ImportGoodsPanel extends JPanel {
             if (n != null && !n.trim().isEmpty()) selectedSupplierName = n.trim();
         }
 
+        int stt = 1;
         for (Ingredient ing : allIngredients) {
             boolean matchSupplier = true;
             if (selectedSupplierName != null) {
@@ -593,11 +650,12 @@ public class ImportGoodsPanel extends JPanel {
 
             if (matchSupplier && matchKeyword) {
                 ingredientModel.addRow(new Object[]{
-                    ing.getId(),
+                    stt++,
                     ing.getName(),
                     ing.getUnit(),
                     CurrencyUtil.formatQuantity(ing.getCurrentStock()),
-                    ing.getUnitPrice() != null ? CurrencyUtil.format(ing.getUnitPrice()) : "0"
+                    ing.getUnitPrice() != null ? CurrencyUtil.format(ing.getUnitPrice()) : "0",
+                    ing.getId()
                 });
             }
         }
@@ -619,7 +677,13 @@ public class ImportGoodsPanel extends JPanel {
             return;
         }
 
-        int ingId = (int) ingredientModel.getValueAt(row, 0);
+        int ingId;
+        try {
+            ingId = Integer.parseInt(String.valueOf(ingredientModel.getValueAt(row, 5)).trim());
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Không xác định được nguyên liệu", "Lỗi", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
         String name = (String) ingredientModel.getValueAt(row, 1);
         String unit = (String) ingredientModel.getValueAt(row, 2);
         double price = parsePrice(String.valueOf(ingredientModel.getValueAt(row, 4)));
@@ -646,7 +710,12 @@ public class ImportGoodsPanel extends JPanel {
         if (confirm != JOptionPane.YES_OPTION) return;
 
         for (int i = 0; i < ingredientModel.getRowCount(); i++) {
-            int ingId = (int) ingredientModel.getValueAt(i, 0);
+            int ingId;
+            try {
+                ingId = Integer.parseInt(String.valueOf(ingredientModel.getValueAt(i, 5)).trim());
+            } catch (Exception ex) {
+                continue;
+            }
             String name = (String) ingredientModel.getValueAt(i, 1);
             String unit = (String) ingredientModel.getValueAt(i, 2);
             double price = parsePrice(String.valueOf(ingredientModel.getValueAt(i, 4)));
@@ -784,12 +853,71 @@ public class ImportGoodsPanel extends JPanel {
             return;
         }
 
+		// Validate: mỗi nguyên liệu phải có NCC hợp lệ (tồn tại trong tab NCC)
+		if (SupplierDAO.supportsSuppliers()) {
+			Set<String> supplierNamesLower = new HashSet<>();
+			for (Supplier s : SupplierDAO.findByFilter("", false)) {
+				if (s != null && s.getName() != null && !s.getName().trim().isEmpty()) {
+					supplierNamesLower.add(s.getName().trim().toLowerCase());
+				}
+			}
+
+			Map<Integer, Ingredient> ingredientById = new HashMap<>();
+			for (Ingredient ing : allIngredients) {
+				if (ing != null) ingredientById.put(ing.getId(), ing);
+			}
+
+			List<String> invalidLines = new ArrayList<>();
+			for (int r = 0; r < detailModel.getRowCount(); r++) {
+				int ingredientId;
+				try {
+					ingredientId = Integer.parseInt(String.valueOf(detailModel.getValueAt(r, 0)).trim());
+				} catch (Exception ex) {
+					continue;
+				}
+				double qty = parseDouble(detailModel.getValueAt(r, 4));
+				if (qty <= 0) continue;
+
+				String ingredientName = String.valueOf(detailModel.getValueAt(r, 1));
+				Ingredient ing = ingredientById.get(ingredientId);
+				if (ing == null) {
+					ing = IngredientDAO.findById(ingredientId);
+				}
+				String ingSupplier = ing == null ? null : ing.getSupplier();
+				if (ingSupplier == null || ingSupplier.trim().isEmpty()) {
+					invalidLines.add("- " + ingredientName + ": chưa có Nhà cung cấp");
+					continue;
+				}
+				String key = ingSupplier.trim().toLowerCase();
+				if (!supplierNamesLower.contains(key)) {
+					invalidLines.add("- " + ingredientName + ": NCC \"" + ingSupplier.trim() + "\" không tồn tại trong tab Nhà cung cấp");
+				}
+			}
+
+			if (!invalidLines.isEmpty()) {
+				StringBuilder msg = new StringBuilder();
+				msg.append("Không thể nhập hàng vì có nguyên liệu chưa có NCC hợp lệ:\n");
+				for (String s : invalidLines) msg.append(s).append("\n");
+				msg.append("\nVui lòng:\n");
+				msg.append("1) Vào tab 'Nhà cung cấp' để thêm NCC (nếu chưa có)\n");
+				msg.append("2) Vào tab 'Nguyên liệu' cập nhật Nhà cung cấp cho nguyên liệu\n");
+				msg.append("Sau đó quay lại nhập hàng và thử lại.");
+				JOptionPane.showMessageDialog(this, msg.toString(), "Thiếu Nhà cung cấp", JOptionPane.WARNING_MESSAGE);
+				return;
+			}
+		}
+
         int confirm = JOptionPane.showConfirmDialog(this,
-            "Lưu phiếu nhập?\n• NCC: " + supplierName + "\n• " + detailModel.getRowCount() + " mặt hàng\n• Tổng: " + totalAmountLabel.getText(),
+            "Nhập hàng và thanh toán phiếu nhập?\n• NCC: " + supplierName + "\n• " + detailModel.getRowCount() + " mặt hàng\n• Tổng: " + totalAmountLabel.getText(),
             "Xác nhận", JOptionPane.YES_NO_OPTION);
         if (confirm != JOptionPane.YES_OPTION) return;
 
         String invoiceNo = invoiceNoField.getText().trim();
+        if (invoiceNo.isEmpty()) invoiceNo = generateUniqueInvoiceNo();
+        for (int i = 0; i < 10 && ImportInvoiceDAO.invoiceNoExists(invoiceNo); i++) {
+            invoiceNo = generateUniqueInvoiceNo();
+        }
+        invoiceNoField.setText(invoiceNo);
         String importDate = importDatePicker.getText();
         String note = noteArea.getText().trim();
         String reason = "Invoice:" + invoiceNo + " | Supplier:" + supplierName +
@@ -827,7 +955,9 @@ public class ImportGoodsPanel extends JPanel {
                 
                 // Reset form và chuyển về tab Nguyên liệu
                 resetForm();
-                if (parent != null) parent.navigateToTab("Hóa đơn nhập");
+				if (parent != null) {
+					SwingUtilities.invokeLater(() -> parent.navigateToTab("Hóa đơn nhập"));
+				}
             } catch (Exception ex) {
                 c.rollback();
                 JOptionPane.showMessageDialog(this, "Lỗi: " + ex.getMessage(), "Lỗi", JOptionPane.ERROR_MESSAGE);
@@ -1032,8 +1162,7 @@ public class ImportGoodsPanel extends JPanel {
         detailModel.setRowCount(0);
         
         // Generate new invoice number
-        String newNo = "HDN-" + LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd")) + "-" + (System.currentTimeMillis() % 1000);
-        invoiceNoField.setText(newNo);
+        invoiceNoField.setText(generateUniqueInvoiceNo());
         
         // Reset supplier
         supplierCombo.setSelectedIndex(0);

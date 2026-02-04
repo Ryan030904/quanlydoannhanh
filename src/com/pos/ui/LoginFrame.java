@@ -43,15 +43,17 @@ public class LoginFrame extends JFrame {
         // Khởi tạo preferences để lưu thông tin đăng nhập
         prefs = Preferences.userNodeForPackage(LoginFrame.class);
         
-        setTitle("FoodPOS - Đăng nhập");
-        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(1100, 700);
-        setLocationRelativeTo(null);
-        setResizable(false);
-        setUndecorated(true);
+        try {
+			setIconImages(AppFrame.getAppIconImages());
+		} catch (Exception ignored) {
+		}
         
-        // Rounded window shape
-        setShape(new RoundRectangle2D.Double(0, 0, 1100, 700, 25, 25));
+        setTitle("Đăng nhập - FoodPOS");
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+		setSize(1100, 700);
+        setLocationRelativeTo(null);
+		setResizable(false);
+		setUndecorated(true);
         
         // Tải ảnh nền
         loadBackgroundImage();
@@ -60,20 +62,19 @@ public class LoginFrame extends JFrame {
         JPanel background = new BackgroundPanel();
         background.setLayout(new BorderLayout());
         setContentPane(background);
-        
-        // === WINDOW CONTROL BUTTONS ở góc trên bên phải của cửa sổ ===
-        JPanel windowControlPanel = createWindowControlPanel();
-        windowControlPanel.setBorder(new EmptyBorder(10, 0, 0, 15));
-        background.add(windowControlPanel, BorderLayout.NORTH);
+		
+		// === WINDOW CONTROL BUTTONS ở góc trên bên phải của cửa sổ ===
+		JPanel windowControlPanel = createWindowControlPanel();
+		windowControlPanel.setBorder(new EmptyBorder(10, 0, 0, 15));
+		background.add(windowControlPanel, BorderLayout.NORTH);
         
         // === CENTER PANEL chứa glass card ===
         JPanel centerPanel = new JPanel(new GridBagLayout());
         centerPanel.setOpaque(false);
         background.add(centerPanel, BorderLayout.CENTER);
-        
-        // Enable window dragging
-        enableWindowDragging(background);
-        enableWindowDragging(centerPanel);
+		
+		// Enable window dragging
+		enableWindowDragging(windowControlPanel);
         
         // === GLASS CARD ===
         JPanel card = createGlassCard();
@@ -226,31 +227,45 @@ public class LoginFrame extends JFrame {
             prefs.putBoolean("rememberPassword", false);
         }
     }
-    
-    /**
-     * Background panel với ảnh nền và hiệu ứng
-     */
+
     private class BackgroundPanel extends JPanel {
+		private transient BufferedImage scaledBackground;
+		private transient int scaledW = -1;
+		private transient int scaledH = -1;
+
         @Override
         protected void paintComponent(Graphics g) {
             super.paintComponent(g);
             Graphics2D g2d = (Graphics2D) g.create();
             g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            
-            // Vẽ ảnh nền nếu có
+
             if (backgroundImage != null) {
-                g2d.drawImage(backgroundImage, 0, 0, getWidth(), getHeight(), null);
+				int w = getWidth();
+				int h = getHeight();
+				if (w > 0 && h > 0) {
+					if (scaledBackground == null || w != scaledW || h != scaledH) {
+						scaledBackground = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+						Graphics2D bg = scaledBackground.createGraphics();
+						bg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+						bg.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+						bg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+						bg.drawImage(backgroundImage, 0, 0, w, h, null);
+						bg.dispose();
+						scaledW = w;
+						scaledH = h;
+					}
+					g2d.drawImage(scaledBackground, 0, 0, null);
+				}
             } else {
-                // Fallback gradient
                 GradientPaint gradient = new GradientPaint(
-                    0, 0, UIConstants.PRIMARY_700,
-                    0, getHeight(), UIConstants.PRIMARY_500
+                        0, 0, UIConstants.PRIMARY_700,
+                        0, getHeight(), UIConstants.PRIMARY_500
                 );
                 g2d.setPaint(gradient);
                 g2d.fillRoundRect(0, 0, getWidth(), getHeight(), 25, 25);
             }
-            
+
             g2d.dispose();
         }
     }
@@ -993,18 +1008,24 @@ public class LoginFrame extends JFrame {
         JPanel panel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         panel.setOpaque(false);
         
-        // Minimize button - nút tròn nhỏ
-        JButton minimizeBtn = createSimpleWindowButton("−", 0); // 0 = minimize
-        minimizeBtn.setToolTipText("Ẩn cửa sổ");
+        JButton minimizeBtn = createSimpleWindowButton("", 0); // 0 = minimize
+        minimizeBtn.setToolTipText("Thu nhỏ");
         minimizeBtn.addActionListener(e -> setState(Frame.ICONIFIED));
         
-        // Maximize button - disabled, chỉ hiển thị
-        JButton maximizeBtn = createSimpleWindowButton("□", 1); // 1 = maximize (disabled)
-        maximizeBtn.setToolTipText("Kích thước cố định");
-        maximizeBtn.setEnabled(false);
+        JButton maximizeBtn = createSimpleWindowButton("", 1); // 1 = maximize
+        maximizeBtn.setToolTipText("Phóng to / Thu nhỏ");
+        maximizeBtn.addActionListener(e -> {
+            int st = getExtendedState();
+            if ((st & JFrame.MAXIMIZED_BOTH) == JFrame.MAXIMIZED_BOTH) {
+                setExtendedState(JFrame.NORMAL);
+                setSize(1100, 700);
+                setLocationRelativeTo(null);
+            } else {
+                setExtendedState(JFrame.MAXIMIZED_BOTH);
+            }
+        });
         
-        // Close button - nút tròn nhỏ
-        JButton closeBtn = createSimpleWindowButton("×", 2); // 2 = close
+        JButton closeBtn = createSimpleWindowButton("", 2); // 2 = close
         closeBtn.setToolTipText("Đóng");
         closeBtn.addActionListener(e -> System.exit(0));
         
@@ -1014,15 +1035,12 @@ public class LoginFrame extends JFrame {
         
         return panel;
     }
-    
-    /**
-     * Tạo nút window control đơn giản
-     * type: 0 = minimize, 1 = maximize (disabled), 2 = close
-     */
+
     private JButton createSimpleWindowButton(String symbol, int type) {
         JButton btn = new JButton(symbol) {
             private boolean isHovered = false;
-            
+            private boolean isPressed = false;
+
             {
                 addMouseListener(new MouseAdapter() {
                     @Override
@@ -1030,64 +1048,88 @@ public class LoginFrame extends JFrame {
                         isHovered = true;
                         repaint();
                     }
+
                     @Override
                     public void mouseExited(MouseEvent e) {
                         isHovered = false;
+                        isPressed = false;
+                        repaint();
+                    }
+
+                    @Override
+                    public void mousePressed(MouseEvent e) {
+                        isPressed = true;
+                        repaint();
+                    }
+
+                    @Override
+                    public void mouseReleased(MouseEvent e) {
+                        isPressed = false;
                         repaint();
                     }
                 });
             }
-            
+
             @Override
             protected void paintComponent(Graphics g) {
                 Graphics2D g2d = (Graphics2D) g.create();
                 g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                
-                // Nền theo loại nút
-                if (type == 1) {
-                    // Maximize - disabled, màu xám nhạt
-                    g2d.setColor(new Color(200, 200, 200, 60));
-                    g2d.fillOval(0, 0, getWidth(), getHeight());
-                } else if (isHovered) {
-                    if (type == 2) {
-                        g2d.setColor(new Color(231, 76, 60, 200)); // Đỏ nhạt cho close
-                    } else {
-                        g2d.setColor(new Color(255, 255, 255, 100));
-                    }
-                    g2d.fillOval(0, 0, getWidth(), getHeight());
+
+                Color base;
+                if (type == 2) base = new Color(239, 68, 68);
+                else if (type == 1) base = new Color(34, 197, 94);
+                else base = new Color(245, 158, 11);
+
+                int alpha = isHovered ? 235 : 190;
+                if (isPressed) alpha = 255;
+
+                int w = getWidth();
+                int h = getHeight();
+                int d = Math.min(w, h);
+
+                g2d.setColor(new Color(0, 0, 0, 45));
+                g2d.fillOval(1, 2, d - 2, d - 2);
+
+                g2d.setColor(new Color(base.getRed(), base.getGreen(), base.getBlue(), alpha));
+                g2d.fillOval(0, 0, d - 1, d - 1);
+
+                g2d.setColor(new Color(0, 0, 0, isHovered ? 70 : 45));
+                g2d.setStroke(new BasicStroke(1.15f));
+                g2d.drawOval(0, 0, d - 2, d - 2);
+
+                int cx = d / 2;
+                int cy = d / 2;
+                g2d.setColor(new Color(20, 20, 20, isHovered ? 230 : 180));
+                g2d.setStroke(new BasicStroke(1.9f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                if (type == 0) {
+                    g2d.drawLine(cx - 5, cy, cx + 5, cy);
+                } else if (type == 1) {
+                    g2d.drawRect(cx - 5, cy - 5, 10, 10);
                 } else {
-                    g2d.setColor(new Color(255, 255, 255, 50));
-                    g2d.fillOval(0, 0, getWidth(), getHeight());
+                    g2d.drawLine(cx - 4, cy - 4, cx + 4, cy + 4);
+                    g2d.drawLine(cx + 4, cy - 4, cx - 4, cy + 4);
                 }
-                
-                // Text
-                g2d.setFont(new Font("Arial", Font.BOLD, 14));
-                if (type == 1) {
-                    g2d.setColor(new Color(150, 150, 150)); // Xám cho disabled
-                } else if (isHovered && type == 2) {
-                    g2d.setColor(Color.WHITE);
-                } else {
-                    g2d.setColor(new Color(60, 60, 60));
-                }
-                FontMetrics fm = g2d.getFontMetrics();
-                int x = (getWidth() - fm.stringWidth(getText())) / 2;
-                int y = (getHeight() + fm.getAscent() - fm.getDescent()) / 2;
-                g2d.drawString(getText(), x, y);
-                
+
                 g2d.dispose();
             }
         };
-        btn.setPreferredSize(new Dimension(28, 28));
+
+        btn.setPreferredSize(new Dimension(18, 18));
+        btn.setMinimumSize(new Dimension(18, 18));
+        btn.setMaximumSize(new Dimension(18, 18));
         btn.setContentAreaFilled(false);
         btn.setBorderPainted(false);
         btn.setFocusPainted(false);
+        btn.setOpaque(false);
         btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        
+
         return btn;
     }
     
     /**
-     * Create close button for window - DEPRECATED, kept for compatibility
+     * Tạo nút window control đơn giản
+            
+            g2d.dispose();
      */
     private JButton createCloseButton() {
         JButton btn = new JButton("✕") {
@@ -1180,6 +1222,8 @@ public class LoginFrame extends JFrame {
                 
                 if (isDragging[0]) {
                     setLocation(currentX - dragX, currentY - dragY);
+					Toolkit.getDefaultToolkit().sync();
+					repaint();
                 }
             }
         });

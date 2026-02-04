@@ -6,6 +6,7 @@ import com.pos.dao.PromotionDAO;
 import com.pos.model.Item;
 import com.pos.model.Promotion;
 import com.pos.model.User;
+import com.pos.service.PermissionService;
 import com.pos.util.CurrencyUtil;
 import com.pos.ui.components.CardPanel;
 import com.pos.ui.components.DatePicker;
@@ -146,11 +147,8 @@ public class PromotionsManagementPanel extends JPanel {
         panel.setOpaque(false);
         panel.setBorder(new EmptyBorder(UIConstants.SPACING_SM, 0, 0, 0));
 
-        // Kiểm tra quyền: Nhân viên (PQ2) chỉ được xem, không được chỉnh sửa
-        User currentUser = Session.getCurrentUser();
-        boolean isStaff = currentUser != null && "PQ2".equalsIgnoreCase(currentUser.getPermissionCode());
-        
-        if (isStaff) {
+        boolean canMutate = PermissionService.canMutateTab(Session.getCurrentUser(), "Khuyến mãi");
+        if (!canMutate) {
             // Nhân viên chỉ xem - hiển thị thông báo
             JLabel viewOnlyLabel = new JLabel("Chế độ xem - Chỉ admin mới có thể chỉnh sửa khuyến mãi");
             viewOnlyLabel.setFont(UIConstants.FONT_BODY);
@@ -290,8 +288,6 @@ public class PromotionsManagementPanel extends JPanel {
         JTextField minOrder = new JTextField("0");
         DatePicker startDatePicker = new DatePicker();
         DatePicker endDatePicker = new DatePicker();
-        JCheckBox active = new JCheckBox("Dang bat");
-        active.setSelected(true);
 
         JCheckBox allProducts = new JCheckBox("Tất cả món");
         allProducts.setSelected(true);
@@ -306,7 +302,6 @@ public class PromotionsManagementPanel extends JPanel {
             minOrder.setText(String.valueOf((long) existing.getMinOrderAmount()));
             if (existing.getStartDate() != null) startDatePicker.setDate(existing.getStartDate());
             if (existing.getEndDate() != null) endDatePicker.setDate(existing.getEndDate());
-            active.setSelected(existing.isActive());
 
             if (existing.getApplicableProductIds() != null && !existing.getApplicableProductIds().isEmpty()) {
                 allProducts.setSelected(false);
@@ -362,7 +357,6 @@ public class PromotionsManagementPanel extends JPanel {
         scope.add(allProducts);
         scope.add(pickProductsBtn);
         p.add(scope);
-        p.add(active);
 
         int res = JOptionPane.showConfirmDialog(this, p, existing == null ? "Thêm khuyến mãi" : "Sửa khuyến mãi",
                 JOptionPane.OK_CANCEL_OPTION);
@@ -420,7 +414,6 @@ public class PromotionsManagementPanel extends JPanel {
         out.setMinOrderAmount(min);
         out.setStartDate(sd);
         out.setEndDate(ed);
-        out.setActive(active.isSelected());
 
         if (allProducts.isSelected()) {
             out.setApplicableProductIds(new ArrayList<>());

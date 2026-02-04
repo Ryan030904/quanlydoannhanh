@@ -269,8 +269,6 @@ public class EmployeesManagementPanel extends JPanel {
         JComboBox<String> position = lockManagerPosition
                 ? new JComboBox<>(new String[]{"manager"})
                 : new JComboBox<>(new String[]{"staff", "cashier", "chef", "waiter"});
-        JCheckBox active = new JCheckBox("Đang hoạt động");
-        active.setSelected(true);
 
         if (existing != null) {
             fullName.setText(existing.getFullName());
@@ -278,7 +276,6 @@ public class EmployeesManagementPanel extends JPanel {
             phone.setText(existing.getPhone());
             username.setText(existing.getUsername());
             if (existing.getPosition() != null) position.setSelectedItem(existing.getPosition());
-            active.setSelected(existing.isActive());
         }
         position.setEnabled(!lockManagerPosition);
 
@@ -306,7 +303,6 @@ public class EmployeesManagementPanel extends JPanel {
         p.add(new JLabel("Vị trí:"));
         p.add(position);
         p.add(Box.createRigidArea(new Dimension(0, 6)));
-        p.add(active);
 
         int res = JOptionPane.showConfirmDialog(this, p, existing == null ? "Thêm nhân viên" : "Sửa nhân viên",
                 JOptionPane.OK_CANCEL_OPTION);
@@ -366,7 +362,7 @@ public class EmployeesManagementPanel extends JPanel {
         Double sal = null;
         LocalDate hd = null;
 
-        Employee out = existing == null ? new Employee(0, fn, un, em, ph, pos, sal, hd, active.isSelected()) : existing;
+        Employee out = existing == null ? new Employee(0, fn, un, em, ph, pos, sal, hd, true) : existing;
         out.setFullName(fn);
         out.setEmail(em);
         out.setPhone(ph);
@@ -374,7 +370,7 @@ public class EmployeesManagementPanel extends JPanel {
         out.setPosition(pos);
         out.setSalary(sal);
         out.setHireDate(hd);
-        out.setActive(active.isSelected());
+        out.setActive(true);
 
         return out;
     }

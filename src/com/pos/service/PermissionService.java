@@ -35,6 +35,17 @@ public class PermissionService {
         return allowed.contains(t);
     }
 
+	public static boolean canMutateTab(User user, String tabName) {
+		if (tabName == null || tabName.trim().isEmpty()) return false;
+		String t = tabName.trim();
+		String code = permissionCodeForUser(user);
+		if ("PQ0".equalsIgnoreCase(code)) return true;
+		if (!canAccessTab(user, t)) return false;
+		String username = user == null ? null : user.getUsername();
+		Set<String> allowed = loadMutateTabsForUsername(username, code);
+		return allowed.contains(t);
+	}
+
     public static Set<String> loadTabsForUsername(String username, String permissionCode) {
         String un = username == null ? "" : username.trim();
         if (!un.isEmpty() && un.equalsIgnoreCase(ADMIN_USERNAME)) {
@@ -50,6 +61,22 @@ public class PermissionService {
         }
         return loadTabsForPermissionCode(permissionCode);
     }
+
+	public static Set<String> loadMutateTabsForUsername(String username, String permissionCode) {
+		String un = username == null ? "" : username.trim();
+		if (!un.isEmpty() && un.equalsIgnoreCase(ADMIN_USERNAME)) {
+			return parseCsvTabs(defaultTabsForPermissionCode("PQ0"));
+		}
+
+		Properties p = loadProperties();
+		if (!un.isEmpty()) {
+			String key = "user." + un + ".mutateTabs";
+			if (p.containsKey(key)) {
+				return parseCsvTabs(p.getProperty(key));
+			}
+		}
+		return loadMutateTabsForPermissionCode(permissionCode);
+	}
 
     public static Set<String> loadTabsForRole(String role) {
         String roleKey = canonicalRole(role);
@@ -69,6 +96,35 @@ public class PermissionService {
         }
         return parseCsvTabs(v);
     }
+
+	public static Set<String> loadMutateTabsForPermissionCode(String code) {
+		String c = code == null ? "" : code.trim();
+		if (c.isEmpty()) c = "PQ2";
+		if ("PQ0".equalsIgnoreCase(c)) {
+			return parseCsvTabs(defaultTabsForPermissionCode("PQ0"));
+		}
+		if (!"PQ2".equalsIgnoreCase(c)) {
+			c = "PQ2";
+		}
+
+		Properties p = loadProperties();
+		String permKey = "perm." + c + ".mutateTabs";
+		if (p.containsKey(permKey)) {
+			return parseCsvTabs(p.getProperty(permKey));
+		}
+		String roleKey = "role.Staff.mutateTabs";
+		if (p.containsKey(roleKey)) {
+			return parseCsvTabs(p.getProperty(roleKey));
+		}
+
+		{
+			// Backward compatible default: allow mutations on allowed tabs, but keep Promotions view-only.
+			Set<String> base = loadTabsForPermissionCode(c);
+			base.remove("Khuyến mãi");
+			base.remove("Nhà cung cấp");
+			return base;
+		}
+	}
 
     public static Set<String> loadTabsForPermissionCode(String code) {
         String c = code == null ? "" : code.trim();

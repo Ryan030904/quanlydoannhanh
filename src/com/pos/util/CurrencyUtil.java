@@ -41,9 +41,7 @@ public class CurrencyUtil {
 
     public static String formatQuantity(double value) {
         if (Double.isNaN(value) || Double.isInfinite(value)) return "";
-        // Luôn làm tròn và hiển thị số nguyên
-        long rounded = Math.round(value);
-        return String.valueOf(rounded);
+        return QTY.format(value);
     }
 }
 

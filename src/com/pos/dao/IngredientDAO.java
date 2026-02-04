@@ -77,7 +77,6 @@ public class IngredientDAO {
     public static List<Ingredient> findByFilter(String keyword, String supplier, boolean lowStockOnly, boolean includeInactive) {
         List<Ingredient> list = new ArrayList<>();
         try (Connection c = DBConnection.getConnection()) {
-            boolean hasIsActive = hasColumn(c, "ingredients", "is_active");
             boolean hasMin = hasColumn(c, "ingredients", "min_stock_level");
 
             StringBuilder sql = new StringBuilder(
@@ -85,10 +84,6 @@ public class IngredientDAO {
                             ? "SELECT ingredient_id, ingredient_name, unit, current_stock, min_stock_level, unit_price, supplier FROM ingredients WHERE 1=1"
                             : "SELECT ingredient_id, ingredient_name, unit, current_stock, unit_price, supplier FROM ingredients WHERE 1=1");
             List<Object> params = new ArrayList<>();
-
-            if (!includeInactive && hasIsActive) {
-                sql.append(" AND is_active = 1");
-            }
             if (keyword != null && !keyword.trim().isEmpty()) {
                 sql.append(" AND ingredient_name LIKE ?");
                 params.add("%" + keyword.trim() + "%");
@@ -284,20 +279,40 @@ public class IngredientDAO {
 
     public static boolean delete(int ingredientId) {
         String sql = "DELETE FROM ingredients WHERE ingredient_id=?";
-        try (Connection c = DBConnection.getConnection();
-             PreparedStatement ps = c.prepareStatement(sql)) {
-            try (PreparedStatement psRecipe = c.prepareStatement("DELETE FROM product_ingredients WHERE ingredient_id=?")) {
-                psRecipe.setInt(1, ingredientId);
-                psRecipe.executeUpdate();
-            } catch (SQLException ignored) {
+        try (Connection c = DBConnection.getConnection()) {
+            c.setAutoCommit(false);
+            try {
+                try (PreparedStatement psRecipe = c.prepareStatement("DELETE FROM product_ingredients WHERE ingredient_id=?")) {
+                    psRecipe.setInt(1, ingredientId);
+                    psRecipe.executeUpdate();
+                } catch (SQLException ignored) {
+                }
+
+                try {
+                    if (hasTable(c, "inventory_transactions")) {
+                        try (PreparedStatement psTx = c.prepareStatement("DELETE FROM inventory_transactions WHERE ingredient_id=?")) {
+                            psTx.setInt(1, ingredientId);
+                            psTx.executeUpdate();
+                        }
+                    }
+                } catch (SQLException ignored) {
+                }
+
+                boolean result;
+                try (PreparedStatement ps = c.prepareStatement(sql)) {
+                    ps.setInt(1, ingredientId);
+                    result = ps.executeUpdate() > 0;
+                }
+                c.commit();
+                return result;
+            } catch (SQLException ex) {
+                try { c.rollback(); } catch (SQLException ignored) {}
+                ex.printStackTrace();
+                return false;
+            } finally {
+                try { c.setAutoCommit(true); } catch (SQLException ignored) {}
             }
-            ps.setInt(1, ingredientId);
-            boolean result = ps.executeUpdate() > 0;
-            return result;
         } catch (SQLException ex) {
-            if (isFkConstraint(ex) && supportsIsActive()) {
-                return setStatus(ingredientId, false);
-            }
             ex.printStackTrace();
             return false;
         }
@@ -383,6 +398,20 @@ public class IngredientDAO {
                 if (rs.next()) return true;
             }
             try (ResultSet rs = md.getColumns(c.getCatalog(), null, table.toUpperCase(), column.toUpperCase())) {
+                if (rs.next()) return true;
+            }
+        } catch (SQLException ignored) {
+        }
+        return false;
+    }
+
+    private static boolean hasTable(Connection c, String tableName) {
+        try {
+            DatabaseMetaData md = c.getMetaData();
+            try (ResultSet rs = md.getTables(c.getCatalog(), null, tableName, new String[]{"TABLE"})) {
+                if (rs.next()) return true;
+            }
+            try (ResultSet rs = md.getTables(c.getCatalog(), null, tableName.toUpperCase(), new String[]{"TABLE"})) {
                 if (rs.next()) return true;
             }
         } catch (SQLException ignored) {

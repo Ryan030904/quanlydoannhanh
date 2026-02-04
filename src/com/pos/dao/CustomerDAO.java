@@ -13,6 +13,59 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class CustomerDAO {
+	private static String normalizePhone(String phone) {
+		if (phone == null) return "";
+		return phone.replaceAll("[^0-9]", "").trim();
+	}
+
+	public static Customer findByPhone(String phone) {
+		String norm = normalizePhone(phone);
+		if (norm.isEmpty()) return null;
+		String sql = "SELECT customer_id, full_name, phone, email, address, loyalty_points, membership_level" +
+				" FROM customers WHERE phone IS NOT NULL AND phone <> ''";
+		try (Connection c = DBConnection.getConnection();
+			 PreparedStatement ps = c.prepareStatement(sql);
+			 ResultSet rs = ps.executeQuery()) {
+			while (rs.next()) {
+				String dbPhone = rs.getString("phone");
+				if (!normalizePhone(dbPhone).equals(norm)) continue;
+				Customer cust = new Customer();
+				cust.setId(rs.getInt("customer_id"));
+				cust.setFullName(rs.getString("full_name"));
+				cust.setPhone(dbPhone);
+				cust.setEmail(rs.getString("email"));
+				cust.setAddress(rs.getString("address"));
+				cust.setLoyaltyPoints(rs.getInt("loyalty_points"));
+				cust.setMembershipLevel(rs.getString("membership_level"));
+				return cust;
+			}
+			return null;
+		} catch (SQLException ex) {
+			ex.printStackTrace();
+			return null;
+		}
+	}
+
+	public static boolean phoneExists(String phone, int excludeCustomerId) {
+		String norm = normalizePhone(phone);
+		if (norm.isEmpty()) return false;
+		String sql = "SELECT customer_id, phone FROM customers WHERE phone IS NOT NULL AND phone <> ''";
+		try (Connection c = DBConnection.getConnection();
+			 PreparedStatement ps = c.prepareStatement(sql);
+			 ResultSet rs = ps.executeQuery()) {
+			while (rs.next()) {
+				int id = rs.getInt("customer_id");
+				if (excludeCustomerId > 0 && id == excludeCustomerId) continue;
+				String dbPhone = rs.getString("phone");
+				if (normalizePhone(dbPhone).equals(norm)) return true;
+			}
+			return false;
+		} catch (SQLException ex) {
+			ex.printStackTrace();
+			return false;
+		}
+	}
+
     public static boolean supportsCustomers() {
         try (Connection c = DBConnection.getConnection()) {
             return hasTable(c, "customers");
@@ -32,27 +85,10 @@ public class CustomerDAO {
     public static List<Customer> findByFilter(String keyword, String level, boolean includeInactive) {
         List<Customer> list = new ArrayList<>();
 
-        boolean hasIsActive;
-        boolean hasStatus;
-        try (Connection c = DBConnection.getConnection()) {
-            hasIsActive = hasColumn(c, "customers", "is_active");
-            hasStatus = !hasIsActive && hasColumn(c, "customers", "status");
-        } catch (SQLException ex) {
-            hasIsActive = false;
-            hasStatus = false;
-        }
-
-        String activeCol = hasIsActive ? "is_active" : (hasStatus ? "status" : null);
-
         StringBuilder sql = new StringBuilder(
                 "SELECT customer_id, full_name, phone, email, address, loyalty_points, membership_level" +
-                        (activeCol != null ? ", " + activeCol + " AS active_flag" : "") +
                         " FROM customers WHERE 1=1");
         List<Object> params = new ArrayList<>();
-
-        if (!includeInactive && activeCol != null) {
-            sql.append(" AND " + activeCol + " = 1");
-        }
 
         if (keyword != null && !keyword.trim().isEmpty()) {
             sql.append(" AND (full_name LIKE ? OR phone LIKE ?)");
@@ -74,10 +110,6 @@ public class CustomerDAO {
             }
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    boolean active = true;
-                    if (activeCol != null) {
-                        active = rs.getInt("active_flag") == 1;
-                    }
                     list.add(new Customer(
                             rs.getInt("customer_id"),
                             rs.getString("full_name"),
@@ -86,7 +118,7 @@ public class CustomerDAO {
                             rs.getString("address"),
                             rs.getInt("loyalty_points"),
                             rs.getString("membership_level"),
-                            active
+                            true
                     ));
                 }
             }
@@ -98,6 +130,9 @@ public class CustomerDAO {
     }
 
     public static boolean create(Customer cst) {
+		if (phoneExists(cst.getPhone(), 0)) {
+			return false;
+		}
         String sql = "INSERT INTO customers (full_name, phone, email, address, loyalty_points, membership_level) VALUES (?, ?, ?, ?, ?, ?)";
         try (Connection c = DBConnection.getConnection();
              PreparedStatement ps = c.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
@@ -120,6 +155,9 @@ public class CustomerDAO {
     }
 
     public static boolean update(Customer cst) {
+		if (phoneExists(cst.getPhone(), cst.getId())) {
+			return false;
+		}
         String sql = "UPDATE customers SET full_name=?, phone=?, email=?, address=?, loyalty_points=?, membership_level=? WHERE customer_id=?";
         try (Connection c = DBConnection.getConnection();
              PreparedStatement ps = c.prepareStatement(sql)) {

@@ -16,13 +16,12 @@ public class CategoryDAO {
     public static List<Category> findAllActive() {
         List<Category> list = new ArrayList<>();
         String sql = "SELECT category_id AS id, category_name AS name, description, is_active AS status " +
-            "FROM categories WHERE is_active = 1 ORDER BY category_id";
+            "FROM categories ORDER BY category_id";
         try (Connection c = DBConnection.getConnection();
              PreparedStatement ps = c.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
-                boolean active = rs.getInt("status") == 1;
-                Category cat = new Category(rs.getInt("id"), rs.getString("name"), active);
+                Category cat = new Category(rs.getInt("id"), rs.getString("name"), true);
                 cat.setDescription(rs.getString("description"));
                 list.add(cat);
             }
@@ -34,15 +33,12 @@ public class CategoryDAO {
 
     public static List<Category> findAll(boolean includeInactive) {
         List<Category> list = new ArrayList<>();
-        String sql = includeInactive
-            ? "SELECT category_id AS id, category_name AS name, description, is_active AS status FROM categories ORDER BY category_id"
-            : "SELECT category_id AS id, category_name AS name, description, is_active AS status FROM categories WHERE is_active = 1 ORDER BY category_id";
+        String sql = "SELECT category_id AS id, category_name AS name, description, is_active AS status FROM categories ORDER BY category_id";
         try (Connection c = DBConnection.getConnection();
              PreparedStatement ps = c.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
-                boolean active = rs.getInt("status") == 1;
-                Category cat = new Category(rs.getInt("id"), rs.getString("name"), active);
+                Category cat = new Category(rs.getInt("id"), rs.getString("name"), true);
                 cat.setDescription(rs.getString("description"));
                 list.add(cat);
             }
@@ -58,7 +54,7 @@ public class CategoryDAO {
              PreparedStatement ps = c.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             ps.setString(1, category.getName());
             ps.setString(2, category.getDescription());
-            ps.setInt(3, category.isActive() ? 1 : 0);
+            ps.setInt(3, 1);
             int affected = ps.executeUpdate();
             if (affected == 0) return false;
             try (ResultSet keys = ps.getGeneratedKeys()) {
@@ -77,7 +73,7 @@ public class CategoryDAO {
              PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setString(1, category.getName());
             ps.setString(2, category.getDescription());
-            ps.setInt(3, category.isActive() ? 1 : 0);
+            ps.setInt(3, 1);
             ps.setInt(4, category.getId());
             return ps.executeUpdate() > 0;
         } catch (SQLException ex) {

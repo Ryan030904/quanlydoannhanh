@@ -2,10 +2,12 @@ package com.pos.ui;
 
 import com.pos.Session;
 import com.pos.dao.CustomerDAO;
+import com.pos.dao.IngredientDAO;
 import com.pos.dao.OrderDAO;
 import com.pos.dao.PromotionDAO;
 import com.pos.model.CartItem;
 import com.pos.model.Customer;
+import com.pos.model.Ingredient;
 import com.pos.model.Item;
 import com.pos.model.Promotion;
 import com.pos.service.CheckoutException;
@@ -70,6 +72,8 @@ public class PaymentFrame extends JFrame {
     // Customer info (dùng chung cho cả 2 phương thức)
     private JTextField customerNameField;
     private JTextField customerPhoneField;
+	private JTextField qrCustomerNameField;
+	private JTextField qrCustomerPhoneField;
 	private boolean syncingCustomerFields = false;
     
     // Quick cash buttons values
@@ -78,6 +82,10 @@ public class PaymentFrame extends JFrame {
     public PaymentFrame(AppFrame parent, List<CartItem> cartItems) {
         this.parent = parent;
         this.generatedOrderNumber = generateOrderNumber();
+		try {
+			setIconImages(AppFrame.getAppIconImages());
+		} catch (Exception ignored) {
+		}
         
         setTitle("Thanh toán đơn hàng");
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
@@ -234,13 +242,12 @@ public class PaymentFrame extends JFrame {
 		if (d.equals(s)) return;
 		final String text = s;
 		syncingCustomerFields = true;
-		SwingUtilities.invokeLater(() -> {
-			try {
-				dst.setText(text);
-			} finally {
-				syncingCustomerFields = false;
-			}
-		});
+		try {
+			// DocumentListener đã chạy trên EDT, set trực tiếp để tránh trễ dữ liệu khi bấm thanh toán nhanh
+			dst.setText(text);
+		} finally {
+			syncingCustomerFields = false;
+		}
 	}
     
     private JPanel createSummaryRow(String label, JLabel valueLabel) {
@@ -527,14 +534,14 @@ public class PaymentFrame extends JFrame {
         qrContainer.setOpaque(false);
         
         qrPreview = new JLabel("Đang tải mã QR...", SwingConstants.CENTER);
-        qrPreview.setPreferredSize(new Dimension(280, 280));
+        qrPreview.setPreferredSize(new Dimension(280, 310));
         qrPreview.setOpaque(true);
         qrPreview.setBackground(new Color(248, 249, 250));
         qrPreview.setBorder(BorderFactory.createLineBorder(UIConstants.NEUTRAL_300));
         
         qrContainer.add(qrPreview);
         panel.add(qrContainer);
-        panel.add(Box.createRigidArea(new Dimension(0, 12)));
+        panel.add(Box.createRigidArea(new Dimension(0, 4)));
         
         // Customer info section in QR panel
         JPanel customerQRPanel = new JPanel(new GridLayout(2, 2, 8, 6));
@@ -543,41 +550,41 @@ public class PaymentFrame extends JFrame {
         
         JLabel custNameLbl = new JLabel("Tên khách hàng:");
         custNameLbl.setFont(UIConstants.FONT_BODY);
-        JTextField qrCustNameField = new JTextField();
-        qrCustNameField.setFont(UIConstants.FONT_BODY);
+        qrCustomerNameField = new JTextField();
+        qrCustomerNameField.setFont(UIConstants.FONT_BODY);
         
         JLabel custPhoneLbl = new JLabel("Số điện thoại:");
         custPhoneLbl.setFont(UIConstants.FONT_BODY);
-        JTextField qrCustPhoneField = new JTextField();
-        qrCustPhoneField.setFont(UIConstants.FONT_BODY);
+        qrCustomerPhoneField = new JTextField();
+        qrCustomerPhoneField.setFont(UIConstants.FONT_BODY);
         
         customerQRPanel.add(custNameLbl);
-        customerQRPanel.add(qrCustNameField);
+        customerQRPanel.add(qrCustomerNameField);
         customerQRPanel.add(custPhoneLbl);
-        customerQRPanel.add(qrCustPhoneField);
+        customerQRPanel.add(qrCustomerPhoneField);
         
         panel.add(customerQRPanel);
         
         // Sync customer fields between Cash and QR panels
-        qrCustNameField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-			public void insertUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(qrCustNameField, customerNameField); }
-			public void removeUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(qrCustNameField, customerNameField); }
-			public void changedUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(qrCustNameField, customerNameField); }
+        qrCustomerNameField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(qrCustomerNameField, customerNameField); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(qrCustomerNameField, customerNameField); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(qrCustomerNameField, customerNameField); }
         });
-        qrCustPhoneField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-			public void insertUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(qrCustPhoneField, customerPhoneField); }
-			public void removeUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(qrCustPhoneField, customerPhoneField); }
-			public void changedUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(qrCustPhoneField, customerPhoneField); }
+        qrCustomerPhoneField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+			public void insertUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(qrCustomerPhoneField, customerPhoneField); }
+			public void removeUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(qrCustomerPhoneField, customerPhoneField); }
+			public void changedUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(qrCustomerPhoneField, customerPhoneField); }
         });
         customerNameField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-			public void insertUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(customerNameField, qrCustNameField); }
-		            public void removeUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(customerNameField, qrCustNameField); }
-	            public void changedUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(customerNameField, qrCustNameField); }
+			public void insertUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(customerNameField, qrCustomerNameField); }
+		            public void removeUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(customerNameField, qrCustomerNameField); }
+	            public void changedUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(customerNameField, qrCustomerNameField); }
         });
         customerPhoneField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-			public void insertUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(customerPhoneField, qrCustPhoneField); }
-			public void removeUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(customerPhoneField, qrCustPhoneField); }
-			public void changedUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(customerPhoneField, qrCustPhoneField); }
+			public void insertUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(customerPhoneField, qrCustomerPhoneField); }
+			public void removeUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(customerPhoneField, qrCustomerPhoneField); }
+			public void changedUpdate(javax.swing.event.DocumentEvent e) { syncCustomerText(customerPhoneField, qrCustomerPhoneField); }
         });
         
         return panel;
@@ -828,8 +835,25 @@ public class PaymentFrame extends JFrame {
             protected ImageIcon doInBackground() throws Exception {
                 BufferedImage bi = ImageIO.read(URI.create(url).toURL());
                 if (bi == null) return null;
-                Image scaled = bi.getScaledInstance(290, 290, Image.SCALE_SMOOTH);
-                return new ImageIcon(scaled);
+
+				int maxW = qrPreview.getWidth();
+				int maxH = qrPreview.getHeight();
+				if (maxW <= 0 || maxH <= 0) {
+					Dimension pref = qrPreview.getPreferredSize();
+					if (pref != null) {
+						maxW = pref.width;
+						maxH = pref.height;
+					}
+				}
+				if (maxW <= 0) maxW = bi.getWidth();
+				if (maxH <= 0) maxH = bi.getHeight();
+
+				double scale = Math.min(maxW / (double) bi.getWidth(), maxH / (double) bi.getHeight());
+				if (scale <= 0) scale = 1.0;
+				int newW = Math.max(1, (int) Math.round(bi.getWidth() * scale));
+				int newH = Math.max(1, (int) Math.round(bi.getHeight() * scale));
+				Image scaled = bi.getScaledInstance(newW, newH, Image.SCALE_SMOOTH);
+				return new ImageIcon(scaled);
             }
             
             @Override
@@ -920,12 +944,44 @@ public class PaymentFrame extends JFrame {
             paymentMethod = "BankTransfer";
         }
         
-        // Lưu thông tin khách hàng nếu có nhập
-        String custName = customerNameField.getText() != null ? customerNameField.getText().trim() : "";
-        String custPhone = customerPhoneField.getText() != null ? customerPhoneField.getText().trim() : "";
-        if (!custName.isEmpty() || !custPhone.isEmpty()) {
-            saveCustomerIfNew(custName, custPhone);
-        }
+		String custName;
+		String custPhone;
+		if (qrBtn != null && qrBtn.isSelected() && qrCustomerNameField != null && qrCustomerPhoneField != null) {
+			custName = qrCustomerNameField.getText() != null ? qrCustomerNameField.getText().trim() : "";
+			custPhone = qrCustomerPhoneField.getText() != null ? qrCustomerPhoneField.getText().trim() : "";
+		} else {
+			custName = customerNameField.getText() != null ? customerNameField.getText().trim() : "";
+			custPhone = customerPhoneField.getText() != null ? customerPhoneField.getText().trim() : "";
+		}
+		// Fallback nếu vì lý do nào đó field đang chọn rỗng nhưng field còn lại có dữ liệu
+		if ((custName == null || custName.trim().isEmpty()) && customerNameField != null && customerNameField.getText() != null) {
+			String other = customerNameField.getText().trim();
+			if (!other.isEmpty()) custName = other;
+		}
+		if ((custPhone == null || custPhone.trim().isEmpty()) && customerPhoneField != null && customerPhoneField.getText() != null) {
+			String other = customerPhoneField.getText().trim();
+			if (!other.isEmpty()) custPhone = other;
+		}
+		Customer existingByPhone = null;
+		if (custPhone != null && !custPhone.trim().isEmpty()) {
+			existingByPhone = CustomerDAO.findByPhone(custPhone);
+			if (existingByPhone != null) {
+				String existingName = existingByPhone.getFullName() == null ? "" : existingByPhone.getFullName().trim();
+				String inputName = custName == null ? "" : custName.trim();
+				if (!inputName.isEmpty() && !existingName.equalsIgnoreCase(inputName)) {
+					JOptionPane.showMessageDialog(this,
+						"Số điện thoại đã tồn tại nhưng tên khách hàng không khớp.\nVui lòng kiểm tra và nhập lại thông tin.",
+						"Trùng SĐT",
+						JOptionPane.WARNING_MESSAGE);
+					return;
+				}
+				if (inputName.isEmpty()) {
+					custName = existingName;
+				}
+			}
+		}
+		String customerNameForOrder = (custName == null || custName.trim().isEmpty()) ? "Khách lẻ" : custName.trim();
+		String referenceForOrder = (custPhone == null || custPhone.trim().isEmpty()) ? null : ("SĐT: " + custPhone.trim());
         
         int userId = Session.getCurrentUser() != null ? Session.getCurrentUser().getId() : 0;
         
@@ -938,15 +994,29 @@ public class PaymentFrame extends JFrame {
             String orderNo = new CheckoutService().checkoutWithOrderNumber(
                 userId, 
                 generatedOrderNumber, 
-                "Khách lẻ", 
+                customerNameForOrder, 
                 paymentMethod, 
-                null,
+                referenceForOrder,
                 new ArrayList<>(cart.values()), 
                 subtotal, 
                 0, // no tax
                 totalPay,
                 promos
             );
+
+			Integer linkedCustomerId = null;
+			if (custPhone != null && !custPhone.trim().isEmpty()) {
+				Customer byPhone = CustomerDAO.findByPhone(custPhone);
+				if (byPhone == null) {
+					saveCustomerIfNew(custName, custPhone);
+					byPhone = CustomerDAO.findByPhone(custPhone);
+					if (byPhone != null && parent != null) {
+						SwingUtilities.invokeLater(() -> parent.refreshCustomers());
+					}
+				}
+				if (byPhone != null && byPhone.getId() > 0) linkedCustomerId = byPhone.getId();
+			}
+			OrderDAO.updateCustomerForOrderNumber(orderNo, linkedCustomerId, customerNameForOrder);
             
             // Tính tiền thừa nếu thanh toán tiền mặt
             double cashReceived = 0;
@@ -962,14 +1032,44 @@ public class PaymentFrame extends JFrame {
                 subtotal, discount, totalPay,
                 cashBtn.isSelected() ? "Tiền mặt" : "Chuyển khoản",
                 cashReceived, changeAmount);
+
+			showLowStockWarningIfNeeded();
             
-            if (parent != null) parent.clearCartAfterCheckout();
+			if (parent != null) {
+				parent.clearCartAfterCheckout();
+			}
             dispose();
             
         } catch (CheckoutException ex) {
             JOptionPane.showMessageDialog(this, ex.getMessage(), "Lỗi thanh toán", JOptionPane.ERROR_MESSAGE);
         }
     }
+
+	private void showLowStockWarningIfNeeded() {
+		if (!IngredientDAO.supportsMinStockLevel()) return;
+		List<Ingredient> low = IngredientDAO.findByFilter("", null, true, false);
+		if (low == null || low.isEmpty()) return;
+		StringBuilder sb = new StringBuilder();
+		for (Ingredient ing : low) {
+			if (ing == null) continue;
+			double min = ing.getMinStockLevel();
+			if (min <= 0) continue;
+			double cur = ing.getCurrentStock();
+			if (cur > min) continue;
+			String name = ing.getName() == null ? "" : ing.getName();
+			String unit = ing.getUnit() == null ? "" : ing.getUnit();
+			if (sb.length() == 0) {
+				sb.append("Cảnh báo tồn kho thấp (<= tồn tối thiểu):\n");
+			}
+			sb.append("- ").append("#").append(ing.getId()).append(" ").append(name);
+			if (!unit.trim().isEmpty()) sb.append(" (").append(unit).append(")");
+			sb.append(": còn ").append(CurrencyUtil.formatQuantity(cur))
+				.append(", tối thiểu ").append(CurrencyUtil.formatQuantity(min))
+				.append("\n");
+		}
+		if (sb.length() == 0) return;
+		JOptionPane.showMessageDialog(this, sb.toString(), "Cảnh báo tồn kho", JOptionPane.WARNING_MESSAGE);
+	}
     
     private void syncBackToParent() {
         if (parent == null) return;
@@ -1017,33 +1117,23 @@ public class PaymentFrame extends JFrame {
         }
     }
     
-    private void saveCustomerIfNew(String name, String phone) {
-        if (name.isEmpty() && phone.isEmpty()) return;
-        
+    private boolean saveCustomerIfNew(String name, String phone) {
+        if (phone == null || phone.trim().isEmpty()) return false;
+
         try {
-            // Kiểm tra khách hàng đã tồn tại theo SĐT
-            if (!phone.isEmpty()) {
-                List<Customer> existing = CustomerDAO.findByFilter(phone, null, false);
-                for (Customer c : existing) {
-                    if (phone.equals(c.getPhone())) {
-                        // Đã có khách hàng với SĐT này, không cần thêm mới
-                        return;
-                    }
-                }
-            }
-            
-            // Tạo khách hàng mới
+			if (CustomerDAO.phoneExists(phone, 0)) return false;
+
             Customer customer = new Customer();
-            customer.setFullName(name.isEmpty() ? "Khách lẻ" : name);
-            customer.setPhone(phone);
+            customer.setFullName(name == null || name.trim().isEmpty() ? "Khách lẻ" : name.trim());
+            customer.setPhone(phone.trim());
             customer.setAddress("");
             customer.setMembershipLevel("bronze");
             customer.setLoyaltyPoints(0);
-            
-            CustomerDAO.create(customer);
+
+            return CustomerDAO.create(customer);
         } catch (Exception ex) {
-            // Lỗi khi lưu khách hàng - bỏ qua, không ảnh hưởng đến thanh toán
             ex.printStackTrace();
+			return false;
         }
     }
 }

@@ -139,14 +139,31 @@ public class PermissionsManagementPanel extends JPanel {
 		}
 
 		Set<String> allowed = PermissionService.loadTabsForPermissionCode(c);
-		JPanel grid = new JPanel(new GridLayout(0, 2, 10, 8));
+		Set<String> allowedMutate = PermissionService.loadMutateTabsForPermissionCode(c);
+		JPanel grid = new JPanel(new GridLayout(0, 3, 10, 8));
 		grid.setBorder(new EmptyBorder(10, 10, 10, 10));
-		List<JCheckBox> boxes = new ArrayList<>();
+		List<JCheckBox> viewBoxes = new ArrayList<>();
+		List<JCheckBox> mutateBoxes = new ArrayList<>();
+		grid.add(new JLabel("Tab"));
+		grid.add(new JLabel("Xem"));
+		grid.add(new JLabel("Thêm/Sửa/Xóa"));
 		for (String tab : ALL_TABS) {
-			JCheckBox cb = new JCheckBox(tab);
-			cb.setSelected(allowed.contains(tab));
-			boxes.add(cb);
-			grid.add(cb);
+			JLabel name = new JLabel(tab);
+			JCheckBox view = new JCheckBox();
+			view.setSelected(allowed.contains(tab));
+			JCheckBox mut = new JCheckBox();
+			mut.setSelected(allowedMutate.contains(tab));
+			mut.setEnabled(view.isSelected());
+			view.addActionListener(e -> {
+				boolean on = view.isSelected();
+				mut.setEnabled(on);
+				if (!on) mut.setSelected(false);
+			});
+			viewBoxes.add(view);
+			mutateBoxes.add(mut);
+			grid.add(name);
+			grid.add(view);
+			grid.add(mut);
 		}
 
 		JScrollPane scroll = new JScrollPane(grid);
@@ -156,16 +173,19 @@ public class PermissionsManagementPanel extends JPanel {
 		if (res != JOptionPane.OK_OPTION) return;
 
 		StringJoiner sj = new StringJoiner(",");
-		for (int i = 0; i < boxes.size(); i++) {
-			if (boxes.get(i).isSelected()) sj.add(ALL_TABS[i]);
+		StringJoiner sjMut = new StringJoiner(",");
+		for (int i = 0; i < viewBoxes.size(); i++) {
+			if (viewBoxes.get(i).isSelected()) sj.add(ALL_TABS[i]);
+			if (viewBoxes.get(i).isSelected() && mutateBoxes.get(i).isSelected()) sjMut.add(ALL_TABS[i]);
 		}
 		String csv = sj.toString();
+		String csvMut = sjMut.toString();
 		if (csv.trim().isEmpty()) {
 			JOptionPane.showMessageDialog(this, "Phải chọn ít nhất 1 tab");
 			return;
 		}
 
-		if (saveTabsToProperties(c, csv)) {
+		if (saveTabsToProperties(c, csv, csvMut)) {
 			JOptionPane.showMessageDialog(this, "Đã lưu phân quyền. Vui lòng đăng xuất/đăng nhập lại để áp dụng.");
 			if (onDataChanged != null) onDataChanged.run();
 		}
@@ -213,7 +233,7 @@ public class PermissionsManagementPanel extends JPanel {
         return panel;
     }
 
-	private boolean saveTabsToProperties(String code, String csv) {
+	private boolean saveTabsToProperties(String code, String csv, String csvMutate) {
 		try {
 			File f = new File("permissions.properties");
 			Path path = f.toPath();
@@ -223,10 +243,14 @@ public class PermissionsManagementPanel extends JPanel {
 			}
 
 			boolean updatedPerm = false;
+			boolean updatedPermMutate = false;
 			boolean updatedRoleStaff = false;
+			boolean updatedRoleStaffMutate = false;
 			boolean updatedRoleManager = false;
 			String permKey = "perm." + code + ".tabs=";
+			String permMutateKey = "perm." + code + ".mutateTabs=";
 			String roleStaffKey = "role.Staff.tabs=";
+			String roleStaffMutateKey = "role.Staff.mutateTabs=";
 			String roleManagerKey = "role.Manager.tabs=";
 			for (int i = 0; i < lines.size(); i++) {
 				String line = lines.get(i);
@@ -235,9 +259,19 @@ public class PermissionsManagementPanel extends JPanel {
 					updatedPerm = true;
 					continue;
 				}
+				if (line != null && line.startsWith(permMutateKey)) {
+					lines.set(i, permMutateKey + (csvMutate == null ? "" : csvMutate));
+					updatedPermMutate = true;
+					continue;
+				}
 				if (code.equalsIgnoreCase("PQ2") && line != null && line.startsWith(roleStaffKey)) {
 					lines.set(i, roleStaffKey + csv);
 					updatedRoleStaff = true;
+					continue;
+				}
+				if (code.equalsIgnoreCase("PQ2") && line != null && line.startsWith(roleStaffMutateKey)) {
+					lines.set(i, roleStaffMutateKey + (csvMutate == null ? "" : csvMutate));
+					updatedRoleStaffMutate = true;
 					continue;
 				}
 				if (code.equalsIgnoreCase("PQ0") && line != null && line.startsWith(roleManagerKey)) {
@@ -246,7 +280,9 @@ public class PermissionsManagementPanel extends JPanel {
 				}
 			}
 			if (!updatedPerm) lines.add(permKey + csv);
+			if (!updatedPermMutate) lines.add(permMutateKey + (csvMutate == null ? "" : csvMutate));
 			if (code.equalsIgnoreCase("PQ2") && !updatedRoleStaff) lines.add(roleStaffKey + csv);
+			if (code.equalsIgnoreCase("PQ2") && !updatedRoleStaffMutate) lines.add(roleStaffMutateKey + (csvMutate == null ? "" : csvMutate));
 			if (code.equalsIgnoreCase("PQ0") && !updatedRoleManager) lines.add(roleManagerKey + csv);
 
 			Files.write(path, lines, StandardCharsets.UTF_8);
@@ -266,9 +302,11 @@ public class PermissionsManagementPanel extends JPanel {
         }
 
         String code = (String) model.getValueAt(idx, 0);
+        if (code == null) return;
+
         Permission selected = null;
         for (Permission p : permissions) {
-            if (p.code.equals(code)) {
+            if (p != null && p.code != null && p.code.equalsIgnoreCase(code.trim())) {
                 selected = p;
                 break;
             }
@@ -276,29 +314,43 @@ public class PermissionsManagementPanel extends JPanel {
 
         if (selected == null) return;
 
-        // Lấy danh sách tab được phép truy cập
-        Set<String> allowedTabs = PermissionService.loadTabsForPermissionCode(code);
-        
+        Set<String> allowedTabs = PermissionService.loadTabsForPermissionCode(selected.code);
+        Set<String> allowedMutateTabs = PermissionService.loadMutateTabsForPermissionCode(selected.code);
+
         StringBuilder detail = new StringBuilder();
         detail.append("Mã quyền: ").append(selected.code).append("\n");
         detail.append("Tên quyền: ").append(selected.name).append("\n");
         detail.append("Mô tả: ").append(selected.description).append("\n\n");
+
         detail.append("Các tab được truy cập:\n");
-        
-        if (allowedTabs.isEmpty()) {
+        if (allowedTabs == null || allowedTabs.isEmpty()) {
             detail.append("  (Không có quyền truy cập)\n");
         } else {
             int count = 1;
-            for (String tab : allowedTabs) {
-                detail.append("  ").append(count++).append(". ").append(tab).append("\n");
+            for (String tab : ALL_TABS) {
+                if (allowedTabs.contains(tab)) {
+                    detail.append("  ").append(count++).append(". ").append(tab).append("\n");
+                }
+            }
+        }
+
+        detail.append("\nCác tab được Thêm/Sửa/Xóa:\n");
+        if (allowedMutateTabs == null || allowedMutateTabs.isEmpty()) {
+            detail.append("  (Không có)\n");
+        } else {
+            int count = 1;
+            for (String tab : ALL_TABS) {
+                if (allowedMutateTabs.contains(tab)) {
+                    detail.append("  ").append(count++).append(". ").append(tab).append("\n");
+                }
             }
         }
 
         JTextArea textArea = new JTextArea(detail.toString());
         textArea.setEditable(false);
         textArea.setFont(UIConstants.FONT_BODY);
-        textArea.setRows(15);
-        textArea.setColumns(40);
+        textArea.setRows(18);
+        textArea.setColumns(46);
 
         JScrollPane scrollPane = new JScrollPane(textArea);
         JOptionPane.showMessageDialog(this, scrollPane, "Chi tiết phân quyền", JOptionPane.INFORMATION_MESSAGE);

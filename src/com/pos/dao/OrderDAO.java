@@ -116,6 +116,47 @@ public class OrderDAO {
         return false;
     }
 
+	public static boolean updateCustomerForOrderNumber(String orderNumber, Integer customerId, String customerName) {
+		if (orderNumber == null || orderNumber.trim().isEmpty()) return false;
+		String on = orderNumber.trim();
+		try (Connection c = DBConnection.getConnection()) {
+			boolean hasCustomerId = hasColumn(c, "orders", "customer_id");
+			boolean hasCustomerName = hasColumn(c, "orders", "customer_name");
+			if (!hasCustomerId && !hasCustomerName) return false;
+
+			StringBuilder sql = new StringBuilder("UPDATE orders SET ");
+			List<Object> params = new ArrayList<>();
+			boolean added = false;
+			if (hasCustomerId) {
+				sql.append("customer_id = ?");
+				params.add(customerId != null && customerId > 0 ? customerId : null);
+				added = true;
+			}
+			if (hasCustomerName) {
+				sql.append(added ? ", " : "");
+				sql.append("customer_name = ?");
+				String cn = customerName == null ? null : customerName.trim();
+				if (cn != null && cn.isEmpty()) cn = null;
+				params.add(cn);
+			}
+			sql.append(" WHERE order_number = ?");
+			params.add(on);
+
+			try (PreparedStatement ps = c.prepareStatement(sql.toString())) {
+				for (int i = 0; i < params.size(); i++) {
+					Object p = params.get(i);
+					if (p == null) ps.setNull(i + 1, java.sql.Types.INTEGER);
+					else if (p instanceof Integer) ps.setInt(i + 1, (Integer) p);
+					else ps.setString(i + 1, String.valueOf(p));
+				}
+				return ps.executeUpdate() > 0;
+			}
+		} catch (SQLException ex) {
+			ex.printStackTrace();
+			return false;
+		}
+	}
+
     public static class OrderFilter {
         public LocalDate fromDate;
         public LocalDate toDate;

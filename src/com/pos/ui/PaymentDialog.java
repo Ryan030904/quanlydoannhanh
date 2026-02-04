@@ -1,6 +1,8 @@
 package com.pos.ui;
 
 import com.pos.Session;
+import com.pos.dao.IngredientDAO;
+import com.pos.model.Ingredient;
 import com.pos.model.CartItem;
 import com.pos.service.CheckoutException;
 import com.pos.service.CheckoutService;
@@ -31,6 +33,10 @@ public class PaymentDialog extends JDialog {
 
     public PaymentDialog(AppFrame parent, List<CartItem> cartItems) {
         super(parent, "Thanh toán", true);
+		try {
+			setIconImages(AppFrame.getAppIconImages());
+		} catch (Exception ignored) {
+		}
         setSize(540, 380);
         setLocationRelativeTo(parent);
 
@@ -144,6 +150,7 @@ public class PaymentDialog extends JDialog {
 
                 String orderNo = new CheckoutService().checkout(userId, cn, pm, ref, cartItems);
                 JOptionPane.showMessageDialog(this, "Thanh toán thành công. Mã hóa đơn: " + orderNo);
+				showLowStockWarningIfNeeded();
                 parent.clearCartAfterCheckout();
                 dispose();
             } catch (CheckoutException ex) {
@@ -153,6 +160,32 @@ public class PaymentDialog extends JDialog {
 
         setVisible(true);
     }
+
+	private void showLowStockWarningIfNeeded() {
+		if (!IngredientDAO.supportsMinStockLevel()) return;
+		List<Ingredient> low = IngredientDAO.findByFilter("", null, true, false);
+		if (low == null || low.isEmpty()) return;
+		StringBuilder sb = new StringBuilder();
+		for (Ingredient ing : low) {
+			if (ing == null) continue;
+			double min = ing.getMinStockLevel();
+			if (min <= 0) continue;
+			double cur = ing.getCurrentStock();
+			if (cur > min) continue;
+			String name = ing.getName() == null ? "" : ing.getName();
+			String unit = ing.getUnit() == null ? "" : ing.getUnit();
+			if (sb.length() == 0) {
+				sb.append("Cảnh báo tồn kho thấp (<= tồn tối thiểu):\n");
+			}
+			sb.append("- ").append("#").append(ing.getId()).append(" ").append(name);
+			if (!unit.trim().isEmpty()) sb.append(" (").append(unit).append(")");
+			sb.append(": còn ").append(CurrencyUtil.formatQuantity(cur))
+				.append(", tối thiểu ").append(CurrencyUtil.formatQuantity(min))
+				.append("\n");
+		}
+		if (sb.length() == 0) return;
+		JOptionPane.showMessageDialog(this, sb.toString(), "Cảnh báo tồn kho", JOptionPane.WARNING_MESSAGE);
+	}
 
     private void updateQr() {
         if (!qrPanel.isVisible()) return;
