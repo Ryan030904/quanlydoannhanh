@@ -23,6 +23,38 @@ public class IngredientDAO {
         }
     }
 
+	public static void ensureSequentialIdsIfNeeded() {
+		try (Connection c = DBConnection.getConnection()) {
+			if (!hasTable(c, "ingredients")) return;
+			int cnt = 0;
+			int minId = 0;
+			int maxId = 0;
+			try (PreparedStatement ps = c.prepareStatement("SELECT COUNT(*) AS cnt, COALESCE(MIN(ingredient_id),0) AS min_id, COALESCE(MAX(ingredient_id),0) AS max_id FROM ingredients");
+				 ResultSet rs = ps.executeQuery()) {
+				if (rs.next()) {
+					cnt = rs.getInt("cnt");
+					minId = rs.getInt("min_id");
+					maxId = rs.getInt("max_id");
+				}
+			}
+			if (cnt <= 0) return;
+			boolean needs = (minId != 1) || (maxId != cnt);
+			if (!needs) return;
+
+			c.setAutoCommit(false);
+			try {
+				reorderIdsInTransaction(c);
+				c.commit();
+			} catch (SQLException ex) {
+				try { c.rollback(); } catch (SQLException ignored) {}
+			} finally {
+				try { c.setAutoCommit(true); } catch (SQLException ignored) {}
+			}
+		} catch (SQLException ex) {
+			ex.printStackTrace();
+		}
+	}
+
     public static boolean supportsIsActive() {
         try (Connection c = DBConnection.getConnection()) {
             return hasColumn(c, "ingredients", "is_active");
@@ -303,6 +335,10 @@ public class IngredientDAO {
                     ps.setInt(1, ingredientId);
                     result = ps.executeUpdate() > 0;
                 }
+
+                if (result) {
+                    reorderIdsInTransaction(c);
+                }
                 c.commit();
                 return result;
             } catch (SQLException ex) {
@@ -329,52 +365,45 @@ public class IngredientDAO {
     /**
      * Reorder ingredient IDs để không bị nhảy số
      */
-    private static void reorderIds(Connection c) {
-        try {
-            c.setAutoCommit(false);
-            
-            // Tạo bảng tạm lưu mapping
+    private static void reorderIdsInTransaction(Connection c) throws SQLException {
+        if (c == null) return;
+
+        boolean hasRecipe = hasTable(c, "product_ingredients");
+        boolean hasTx = hasTable(c, "inventory_transactions");
+
+        try (Statement st = c.createStatement()) {
+            st.execute("DROP TEMPORARY TABLE IF EXISTS temp_ing_map");
+            st.execute("CREATE TEMPORARY TABLE temp_ing_map (old_id INT, new_id INT)");
+        }
+
+        String insertMapping = "INSERT INTO temp_ing_map (old_id, new_id) " +
+                "SELECT ingredient_id, @rownum := @rownum + 1 FROM ingredients, (SELECT @rownum := 0) r ORDER BY ingredient_id";
+        try (Statement st = c.createStatement()) {
+            st.execute(insertMapping);
+        }
+
+        try (Statement st = c.createStatement()) {
+            st.execute("SET FOREIGN_KEY_CHECKS = 0");
+        }
+
+        if (hasRecipe) {
             try (Statement st = c.createStatement()) {
-                st.execute("DROP TEMPORARY TABLE IF EXISTS temp_ing_map");
-                st.execute("CREATE TEMPORARY TABLE temp_ing_map (old_id INT, new_id INT)");
+                st.execute("UPDATE product_ingredients pi INNER JOIN temp_ing_map m ON pi.ingredient_id = m.old_id SET pi.ingredient_id = m.new_id");
             }
-            
-            // Insert mapping
-            String insertMapping = "INSERT INTO temp_ing_map (old_id, new_id) " +
-                    "SELECT ingredient_id, @rownum := @rownum + 1 FROM ingredients, (SELECT @rownum := 0) r ORDER BY ingredient_id";
+        }
+        if (hasTx) {
             try (Statement st = c.createStatement()) {
-                st.execute(insertMapping);
+                st.execute("UPDATE inventory_transactions it INNER JOIN temp_ing_map m ON it.ingredient_id = m.old_id SET it.ingredient_id = m.new_id");
             }
-            
-            // Tắt FK check
-            try (Statement st = c.createStatement()) {
-                st.execute("SET FOREIGN_KEY_CHECKS = 0");
-            }
-            
-            // Update các bảng liên quan
-            String[] updateSqls = {
-                "UPDATE product_ingredients pi INNER JOIN temp_ing_map m ON pi.ingredient_id = m.old_id SET pi.ingredient_id = m.new_id",
-                "UPDATE inventory_transactions it INNER JOIN temp_ing_map m ON it.ingredient_id = m.old_id SET it.ingredient_id = m.new_id",
-                "UPDATE ingredients i INNER JOIN temp_ing_map m ON i.ingredient_id = m.old_id SET i.ingredient_id = m.new_id + 1000000",
-                "UPDATE ingredients SET ingredient_id = ingredient_id - 1000000"
-            };
-            for (String sql : updateSqls) {
-                try (Statement st = c.createStatement()) {
-                    st.execute(sql);
-                }
-            }
-            
-            // Bật lại FK check
-            try (Statement st = c.createStatement()) {
-                st.execute("SET FOREIGN_KEY_CHECKS = 1");
-                st.execute("DROP TEMPORARY TABLE IF EXISTS temp_ing_map");
-            }
-            
-            c.commit();
-            c.setAutoCommit(true);
-        } catch (SQLException ex) {
-            try { c.rollback(); c.setAutoCommit(true); } catch (SQLException ignored) {}
-            ex.printStackTrace();
+        }
+        try (Statement st = c.createStatement()) {
+            st.execute("UPDATE ingredients i INNER JOIN temp_ing_map m ON i.ingredient_id = m.old_id SET i.ingredient_id = m.new_id + 1000000");
+            st.execute("UPDATE ingredients SET ingredient_id = ingredient_id - 1000000");
+        }
+
+        try (Statement st = c.createStatement()) {
+            st.execute("SET FOREIGN_KEY_CHECKS = 1");
+            st.execute("DROP TEMPORARY TABLE IF EXISTS temp_ing_map");
         }
     }
 

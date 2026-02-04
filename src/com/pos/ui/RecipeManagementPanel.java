@@ -1,5 +1,6 @@
 package com.pos.ui;
 
+import com.pos.Session;
 import com.pos.dao.CategoryDAO;
 import com.pos.dao.IngredientDAO;
 import com.pos.dao.ItemDAO;
@@ -7,6 +8,7 @@ import com.pos.dao.RecipeDAO;
 import com.pos.model.Category;
 import com.pos.model.Ingredient;
 import com.pos.model.Item;
+import com.pos.service.PermissionService;
 import com.pos.ui.components.CardPanel;
 import com.pos.ui.components.ModernButton;
 import com.pos.ui.components.ModernTableStyle;
@@ -260,6 +262,12 @@ public class RecipeManagementPanel extends JPanel {
         buttons.add(addIngBtn);
         buttons.add(removeBtn);
         buttons.add(saveBtn);
+
+        boolean canEdit = PermissionService.canEditTab(Session.getCurrentUser(), "Công thức");
+        boolean canDelete = PermissionService.canDeleteTab(Session.getCurrentUser(), "Công thức");
+        addIngBtn.setVisible(canEdit);
+        saveBtn.setVisible(canEdit);
+        removeBtn.setVisible(canDelete);
 
         header.add(buttons, BorderLayout.EAST);
         panel.add(header, BorderLayout.NORTH);

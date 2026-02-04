@@ -1,7 +1,9 @@
 package com.pos.ui;
 
+import com.pos.Session;
 import com.pos.dao.CategoryDAO;
 import com.pos.model.Category;
+import com.pos.service.PermissionService;
 import com.pos.ui.components.CardPanel;
 import com.pos.ui.components.ModernButton;
 import com.pos.ui.components.ModernTableStyle;
@@ -55,6 +57,13 @@ public class CategoryManagementPanel extends JPanel {
         editBtn.setPreferredSize(new Dimension(70, 32));
         deleteBtn.setPreferredSize(new Dimension(70, 32));
 
+        boolean canAdd = PermissionService.canAddTab(Session.getCurrentUser(), "Danh mục");
+        boolean canEdit = PermissionService.canEditTab(Session.getCurrentUser(), "Danh mục");
+        boolean canDelete = PermissionService.canDeleteTab(Session.getCurrentUser(), "Danh mục");
+        addBtn.setVisible(canAdd);
+        editBtn.setVisible(canEdit);
+        deleteBtn.setVisible(canDelete);
+
         top.add(addBtn);
         top.add(editBtn);
         top.add(deleteBtn);
@@ -75,6 +84,8 @@ public class CategoryManagementPanel extends JPanel {
         scroll.getViewport().setBackground(Color.WHITE);
         tableCard.add(scroll, BorderLayout.CENTER);
         add(tableCard, BorderLayout.CENTER);
+
+        CategoryDAO.ensureSequentialIdsIfNeeded();
 
         searchField.addActionListener(e -> refreshTable());
         searchField.addKeyListener(new java.awt.event.KeyAdapter() {

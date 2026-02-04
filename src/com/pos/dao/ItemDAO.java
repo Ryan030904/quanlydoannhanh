@@ -8,6 +8,29 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ItemDAO {
+	public static void ensureSequentialIdsIfNeeded() {
+		try (Connection c = DBConnection.getConnection()) {
+			int cnt = 0;
+			int minId = 0;
+			int maxId = 0;
+			try (PreparedStatement ps = c.prepareStatement(
+					"SELECT COUNT(*) AS cnt, COALESCE(MIN(product_id),0) AS min_id, COALESCE(MAX(product_id),0) AS max_id FROM products");
+				 ResultSet rs = ps.executeQuery()) {
+				if (rs.next()) {
+					cnt = rs.getInt("cnt");
+					minId = rs.getInt("min_id");
+					maxId = rs.getInt("max_id");
+				}
+			}
+			if (cnt <= 0) return;
+			boolean needs = (minId != 1) || (maxId != cnt);
+			if (!needs) return;
+			reorderIds(c);
+		} catch (SQLException ex) {
+			ex.printStackTrace();
+		}
+	}
+
     public static List<Item> findAll() {
         List<Item> list = new ArrayList<>();
         String sql = "SELECT product_id AS id, product_code AS code, product_name AS name, category_id, " +

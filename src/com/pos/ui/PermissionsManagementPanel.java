@@ -139,31 +139,53 @@ public class PermissionsManagementPanel extends JPanel {
 		}
 
 		Set<String> allowed = PermissionService.loadTabsForPermissionCode(c);
-		Set<String> allowedMutate = PermissionService.loadMutateTabsForPermissionCode(c);
-		JPanel grid = new JPanel(new GridLayout(0, 3, 10, 8));
+		Set<String> allowedAdd = PermissionService.loadAddTabsForPermissionCode(c);
+		Set<String> allowedEdit = PermissionService.loadEditTabsForPermissionCode(c);
+		Set<String> allowedDelete = PermissionService.loadDeleteTabsForPermissionCode(c);
+		JPanel grid = new JPanel(new GridLayout(0, 5, 10, 8));
 		grid.setBorder(new EmptyBorder(10, 10, 10, 10));
 		List<JCheckBox> viewBoxes = new ArrayList<>();
-		List<JCheckBox> mutateBoxes = new ArrayList<>();
+		List<JCheckBox> addBoxes = new ArrayList<>();
+		List<JCheckBox> editBoxes = new ArrayList<>();
+		List<JCheckBox> deleteBoxes = new ArrayList<>();
 		grid.add(new JLabel("Tab"));
 		grid.add(new JLabel("Xem"));
-		grid.add(new JLabel("Thêm/Sửa/Xóa"));
+		grid.add(new JLabel("Thêm"));
+		grid.add(new JLabel("Sửa"));
+		grid.add(new JLabel("Xóa"));
 		for (String tab : ALL_TABS) {
 			JLabel name = new JLabel(tab);
 			JCheckBox view = new JCheckBox();
 			view.setSelected(allowed.contains(tab));
-			JCheckBox mut = new JCheckBox();
-			mut.setSelected(allowedMutate.contains(tab));
-			mut.setEnabled(view.isSelected());
+			JCheckBox add = new JCheckBox();
+			add.setSelected(allowedAdd.contains(tab));
+			add.setEnabled(view.isSelected());
+			JCheckBox edit = new JCheckBox();
+			edit.setSelected(allowedEdit.contains(tab));
+			edit.setEnabled(view.isSelected());
+			JCheckBox del = new JCheckBox();
+			del.setSelected(allowedDelete.contains(tab));
+			del.setEnabled(view.isSelected());
 			view.addActionListener(e -> {
 				boolean on = view.isSelected();
-				mut.setEnabled(on);
-				if (!on) mut.setSelected(false);
+				add.setEnabled(on);
+				edit.setEnabled(on);
+				del.setEnabled(on);
+				if (!on) {
+					add.setSelected(false);
+					edit.setSelected(false);
+					del.setSelected(false);
+				}
 			});
 			viewBoxes.add(view);
-			mutateBoxes.add(mut);
+			addBoxes.add(add);
+			editBoxes.add(edit);
+			deleteBoxes.add(del);
 			grid.add(name);
 			grid.add(view);
-			grid.add(mut);
+			grid.add(add);
+			grid.add(edit);
+			grid.add(del);
 		}
 
 		JScrollPane scroll = new JScrollPane(grid);
@@ -173,19 +195,25 @@ public class PermissionsManagementPanel extends JPanel {
 		if (res != JOptionPane.OK_OPTION) return;
 
 		StringJoiner sj = new StringJoiner(",");
-		StringJoiner sjMut = new StringJoiner(",");
+		StringJoiner sjAdd = new StringJoiner(",");
+		StringJoiner sjEdit = new StringJoiner(",");
+		StringJoiner sjDelete = new StringJoiner(",");
 		for (int i = 0; i < viewBoxes.size(); i++) {
 			if (viewBoxes.get(i).isSelected()) sj.add(ALL_TABS[i]);
-			if (viewBoxes.get(i).isSelected() && mutateBoxes.get(i).isSelected()) sjMut.add(ALL_TABS[i]);
+			if (viewBoxes.get(i).isSelected() && addBoxes.get(i).isSelected()) sjAdd.add(ALL_TABS[i]);
+			if (viewBoxes.get(i).isSelected() && editBoxes.get(i).isSelected()) sjEdit.add(ALL_TABS[i]);
+			if (viewBoxes.get(i).isSelected() && deleteBoxes.get(i).isSelected()) sjDelete.add(ALL_TABS[i]);
 		}
 		String csv = sj.toString();
-		String csvMut = sjMut.toString();
+		String csvAdd = sjAdd.toString();
+		String csvEdit = sjEdit.toString();
+		String csvDelete = sjDelete.toString();
 		if (csv.trim().isEmpty()) {
 			JOptionPane.showMessageDialog(this, "Phải chọn ít nhất 1 tab");
 			return;
 		}
 
-		if (saveTabsToProperties(c, csv, csvMut)) {
+		if (saveTabsToProperties(c, csv, csvAdd, csvEdit, csvDelete)) {
 			JOptionPane.showMessageDialog(this, "Đã lưu phân quyền. Vui lòng đăng xuất/đăng nhập lại để áp dụng.");
 			if (onDataChanged != null) onDataChanged.run();
 		}
@@ -228,71 +256,141 @@ public class PermissionsManagementPanel extends JPanel {
         panel.add(editBtn);
 
         detailBtn.addActionListener(e -> showPermissionDetail());
-		editBtn.addActionListener(e -> editPermissionTabs());
+        editBtn.addActionListener(e -> editPermissionTabs());
 
         return panel;
     }
 
-	private boolean saveTabsToProperties(String code, String csv, String csvMutate) {
-		try {
-			File f = new File("permissions.properties");
-			Path path = f.toPath();
-			List<String> lines = new ArrayList<>();
-			if (f.exists() && f.isFile()) {
-				lines = Files.readAllLines(path, StandardCharsets.UTF_8);
-			}
+    private boolean saveTabsToProperties(String code, String csv, String csvAdd, String csvEdit, String csvDelete) {
+        try {
+            File f = new File("permissions.properties");
+            Path path = f.toPath();
+            List<String> lines = new ArrayList<>();
+            if (f.exists() && f.isFile()) {
+                lines = Files.readAllLines(path, StandardCharsets.UTF_8);
+            }
 
-			boolean updatedPerm = false;
-			boolean updatedPermMutate = false;
-			boolean updatedRoleStaff = false;
-			boolean updatedRoleStaffMutate = false;
-			boolean updatedRoleManager = false;
-			String permKey = "perm." + code + ".tabs=";
-			String permMutateKey = "perm." + code + ".mutateTabs=";
-			String roleStaffKey = "role.Staff.tabs=";
-			String roleStaffMutateKey = "role.Staff.mutateTabs=";
-			String roleManagerKey = "role.Manager.tabs=";
-			for (int i = 0; i < lines.size(); i++) {
-				String line = lines.get(i);
-				if (line != null && line.startsWith(permKey)) {
-					lines.set(i, permKey + csv);
-					updatedPerm = true;
-					continue;
-				}
-				if (line != null && line.startsWith(permMutateKey)) {
-					lines.set(i, permMutateKey + (csvMutate == null ? "" : csvMutate));
-					updatedPermMutate = true;
-					continue;
-				}
-				if (code.equalsIgnoreCase("PQ2") && line != null && line.startsWith(roleStaffKey)) {
-					lines.set(i, roleStaffKey + csv);
-					updatedRoleStaff = true;
-					continue;
-				}
-				if (code.equalsIgnoreCase("PQ2") && line != null && line.startsWith(roleStaffMutateKey)) {
-					lines.set(i, roleStaffMutateKey + (csvMutate == null ? "" : csvMutate));
-					updatedRoleStaffMutate = true;
-					continue;
-				}
-				if (code.equalsIgnoreCase("PQ0") && line != null && line.startsWith(roleManagerKey)) {
-					lines.set(i, roleManagerKey + csv);
-					updatedRoleManager = true;
-				}
+			String ad = csvAdd == null ? "" : csvAdd.trim();
+			String ed = csvEdit == null ? "" : csvEdit.trim();
+			String del = csvDelete == null ? "" : csvDelete.trim();
+			java.util.Set<String> union = new java.util.HashSet<>();
+			for (String s : ad.split(",")) {
+				String t = s == null ? "" : s.trim();
+				if (!t.isEmpty()) union.add(t);
 			}
-			if (!updatedPerm) lines.add(permKey + csv);
-			if (!updatedPermMutate) lines.add(permMutateKey + (csvMutate == null ? "" : csvMutate));
-			if (code.equalsIgnoreCase("PQ2") && !updatedRoleStaff) lines.add(roleStaffKey + csv);
-			if (code.equalsIgnoreCase("PQ2") && !updatedRoleStaffMutate) lines.add(roleStaffMutateKey + (csvMutate == null ? "" : csvMutate));
-			if (code.equalsIgnoreCase("PQ0") && !updatedRoleManager) lines.add(roleManagerKey + csv);
+			for (String s : ed.split(",")) {
+				String t = s == null ? "" : s.trim();
+				if (!t.isEmpty()) union.add(t);
+			}
+			for (String s : del.split(",")) {
+				String t = s == null ? "" : s.trim();
+				if (!t.isEmpty()) union.add(t);
+			}
+			StringJoiner sjMut = new StringJoiner(",");
+			for (String tab : ALL_TABS) {
+				if (union.contains(tab)) sjMut.add(tab);
+			}
+			String csvMutate = sjMut.toString();
 
-			Files.write(path, lines, StandardCharsets.UTF_8);
-			return true;
-		} catch (Exception ex) {
-			ex.printStackTrace();
-			JOptionPane.showMessageDialog(this, "Không thể lưu permissions.properties", "Lỗi", JOptionPane.ERROR_MESSAGE);
-			return false;
-		}
-	}
+            boolean updatedPerm = false;
+            boolean updatedPermMutate = false;
+            boolean updatedPermAdd = false;
+            boolean updatedPermEdit = false;
+            boolean updatedPermDelete = false;
+            boolean updatedRoleStaff = false;
+            boolean updatedRoleStaffMutate = false;
+            boolean updatedRoleStaffAdd = false;
+            boolean updatedRoleStaffEdit = false;
+            boolean updatedRoleStaffDelete = false;
+            boolean updatedRoleManager = false;
+            String permKey = "perm." + code + ".tabs=";
+            String permMutateKey = "perm." + code + ".mutateTabs=";
+            String permAddKey = "perm." + code + ".addTabs=";
+            String permEditKey = "perm." + code + ".editTabs=";
+            String permDeleteKey = "perm." + code + ".deleteTabs=";
+            String roleStaffKey = "role.Staff.tabs=";
+            String roleStaffMutateKey = "role.Staff.mutateTabs=";
+            String roleStaffAddKey = "role.Staff.addTabs=";
+            String roleStaffEditKey = "role.Staff.editTabs=";
+            String roleStaffDeleteKey = "role.Staff.deleteTabs=";
+            String roleManagerKey = "role.Manager.tabs=";
+            for (int i = 0; i < lines.size(); i++) {
+                String line = lines.get(i);
+                if (line != null && line.startsWith(permKey)) {
+                    lines.set(i, permKey + csv);
+                    updatedPerm = true;
+                    continue;
+                }
+                if (line != null && line.startsWith(permMutateKey)) {
+                    lines.set(i, permMutateKey + csvMutate);
+                    updatedPermMutate = true;
+                    continue;
+                }
+                if (line != null && line.startsWith(permAddKey)) {
+                    lines.set(i, permAddKey + ad);
+                    updatedPermAdd = true;
+                    continue;
+                }
+                if (line != null && line.startsWith(permEditKey)) {
+                    lines.set(i, permEditKey + ed);
+                    updatedPermEdit = true;
+                    continue;
+                }
+                if (line != null && line.startsWith(permDeleteKey)) {
+                    lines.set(i, permDeleteKey + del);
+                    updatedPermDelete = true;
+                    continue;
+                }
+                if (code.equalsIgnoreCase("PQ2") && line != null && line.startsWith(roleStaffKey)) {
+                    lines.set(i, roleStaffKey + csv);
+                    updatedRoleStaff = true;
+                    continue;
+                }
+                if (code.equalsIgnoreCase("PQ2") && line != null && line.startsWith(roleStaffMutateKey)) {
+                    lines.set(i, roleStaffMutateKey + csvMutate);
+                    updatedRoleStaffMutate = true;
+                    continue;
+                }
+                if (code.equalsIgnoreCase("PQ2") && line != null && line.startsWith(roleStaffAddKey)) {
+                    lines.set(i, roleStaffAddKey + ad);
+                    updatedRoleStaffAdd = true;
+                    continue;
+                }
+                if (code.equalsIgnoreCase("PQ2") && line != null && line.startsWith(roleStaffEditKey)) {
+                    lines.set(i, roleStaffEditKey + ed);
+                    updatedRoleStaffEdit = true;
+                    continue;
+                }
+                if (code.equalsIgnoreCase("PQ2") && line != null && line.startsWith(roleStaffDeleteKey)) {
+                    lines.set(i, roleStaffDeleteKey + del);
+                    updatedRoleStaffDelete = true;
+                    continue;
+                }
+                if (code.equalsIgnoreCase("PQ0") && line != null && line.startsWith(roleManagerKey)) {
+                    lines.set(i, roleManagerKey + csv);
+                    updatedRoleManager = true;
+                }
+            }
+            if (!updatedPerm) lines.add(permKey + csv);
+            if (!updatedPermMutate) lines.add(permMutateKey + csvMutate);
+            if (!updatedPermAdd) lines.add(permAddKey + ad);
+            if (!updatedPermEdit) lines.add(permEditKey + ed);
+            if (!updatedPermDelete) lines.add(permDeleteKey + del);
+            if (code.equalsIgnoreCase("PQ2") && !updatedRoleStaff) lines.add(roleStaffKey + csv);
+            if (code.equalsIgnoreCase("PQ2") && !updatedRoleStaffMutate) lines.add(roleStaffMutateKey + csvMutate);
+            if (code.equalsIgnoreCase("PQ2") && !updatedRoleStaffAdd) lines.add(roleStaffAddKey + ad);
+            if (code.equalsIgnoreCase("PQ2") && !updatedRoleStaffEdit) lines.add(roleStaffEditKey + ed);
+            if (code.equalsIgnoreCase("PQ2") && !updatedRoleStaffDelete) lines.add(roleStaffDeleteKey + del);
+            if (code.equalsIgnoreCase("PQ0") && !updatedRoleManager) lines.add(roleManagerKey + csv);
+
+            Files.write(path, lines, StandardCharsets.UTF_8);
+            return true;
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            JOptionPane.showMessageDialog(this, "Không thể lưu permissions.properties", "Lỗi", JOptionPane.ERROR_MESSAGE);
+            return false;
+        }
+    }
 
     private void showPermissionDetail() {
         int idx = table.getSelectedRow();
@@ -315,7 +413,9 @@ public class PermissionsManagementPanel extends JPanel {
         if (selected == null) return;
 
         Set<String> allowedTabs = PermissionService.loadTabsForPermissionCode(selected.code);
-        Set<String> allowedMutateTabs = PermissionService.loadMutateTabsForPermissionCode(selected.code);
+        Set<String> allowedAddTabs = PermissionService.loadAddTabsForPermissionCode(selected.code);
+        Set<String> allowedEditTabs = PermissionService.loadEditTabsForPermissionCode(selected.code);
+        Set<String> allowedDeleteTabs = PermissionService.loadDeleteTabsForPermissionCode(selected.code);
 
         StringBuilder detail = new StringBuilder();
         detail.append("Mã quyền: ").append(selected.code).append("\n");
@@ -334,13 +434,37 @@ public class PermissionsManagementPanel extends JPanel {
             }
         }
 
-        detail.append("\nCác tab được Thêm/Sửa/Xóa:\n");
-        if (allowedMutateTabs == null || allowedMutateTabs.isEmpty()) {
+        detail.append("\nCác tab được Thêm:\n");
+        if (allowedAddTabs == null || allowedAddTabs.isEmpty()) {
             detail.append("  (Không có)\n");
         } else {
             int count = 1;
             for (String tab : ALL_TABS) {
-                if (allowedMutateTabs.contains(tab)) {
+                if (allowedAddTabs.contains(tab)) {
+                    detail.append("  ").append(count++).append(". ").append(tab).append("\n");
+                }
+            }
+        }
+
+        detail.append("\nCác tab được Sửa:\n");
+        if (allowedEditTabs == null || allowedEditTabs.isEmpty()) {
+            detail.append("  (Không có)\n");
+        } else {
+            int count = 1;
+            for (String tab : ALL_TABS) {
+                if (allowedEditTabs.contains(tab)) {
+                    detail.append("  ").append(count++).append(". ").append(tab).append("\n");
+                }
+            }
+        }
+
+        detail.append("\nCác tab được Xóa:\n");
+        if (allowedDeleteTabs == null || allowedDeleteTabs.isEmpty()) {
+            detail.append("  (Không có)\n");
+        } else {
+            int count = 1;
+            for (String tab : ALL_TABS) {
+                if (allowedDeleteTabs.contains(tab)) {
                     detail.append("  ").append(count++).append(". ").append(tab).append("\n");
                 }
             }

@@ -1,9 +1,11 @@
 package com.pos.ui;
 
+import com.pos.Session;
 import com.pos.dao.CategoryDAO;
 import com.pos.dao.ItemDAO;
 import com.pos.model.Category;
 import com.pos.model.Item;
+import com.pos.service.PermissionService;
 import com.pos.util.CurrencyUtil;
 import com.pos.ui.theme.UIConstants;
 import com.pos.ui.components.*;
@@ -102,6 +104,8 @@ public class ItemManagementPanel extends JPanel {
         
         add(tableCard, BorderLayout.CENTER);
 
+        ItemDAO.ensureSequentialIdsIfNeeded();
+
         // === ACTION BUTTONS ===
         JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT, UIConstants.SPACING_SM, 0));
         bottom.setOpaque(false);
@@ -110,6 +114,13 @@ public class ItemManagementPanel extends JPanel {
         ModernButton addBtn = new ModernButton("Thêm món", ModernButton.ButtonType.PRIMARY);
         ModernButton editBtn = new ModernButton("Sửa", ModernButton.ButtonType.SECONDARY);
         ModernButton deleteBtn = new ModernButton("Xóa", ModernButton.ButtonType.DANGER);
+
+        boolean canAdd = PermissionService.canAddTab(Session.getCurrentUser(), "Món ăn");
+        boolean canEdit = PermissionService.canEditTab(Session.getCurrentUser(), "Món ăn");
+        boolean canDelete = PermissionService.canDeleteTab(Session.getCurrentUser(), "Món ăn");
+        addBtn.setVisible(canAdd);
+        editBtn.setVisible(canEdit);
+        deleteBtn.setVisible(canDelete);
 
         bottom.add(addBtn);
         bottom.add(editBtn);

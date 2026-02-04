@@ -61,6 +61,7 @@ public class PromotionsManagementPanel extends JPanel {
         add(buildTable(), BorderLayout.CENTER);
         add(buildActions(), BorderLayout.SOUTH);
 
+        PromotionDAO.ensureSequentialIdsIfNeeded();
         refreshTable();
     }
 
@@ -147,10 +148,11 @@ public class PromotionsManagementPanel extends JPanel {
         panel.setOpaque(false);
         panel.setBorder(new EmptyBorder(UIConstants.SPACING_SM, 0, 0, 0));
 
-        boolean canMutate = PermissionService.canMutateTab(Session.getCurrentUser(), "Khuyến mãi");
-        if (!canMutate) {
-            // Nhân viên chỉ xem - hiển thị thông báo
-            JLabel viewOnlyLabel = new JLabel("Chế độ xem - Chỉ admin mới có thể chỉnh sửa khuyến mãi");
+        boolean canAdd = PermissionService.canAddTab(Session.getCurrentUser(), "Khuyến mãi");
+        boolean canEdit = PermissionService.canEditTab(Session.getCurrentUser(), "Khuyến mãi");
+        boolean canDelete = PermissionService.canDeleteTab(Session.getCurrentUser(), "Khuyến mãi");
+        if (!canAdd && !canEdit && !canDelete) {
+            JLabel viewOnlyLabel = new JLabel("Chế độ xem - Không có quyền chỉnh sửa/xóa khuyến mãi");
             viewOnlyLabel.setFont(UIConstants.FONT_BODY);
             viewOnlyLabel.setForeground(UIConstants.NEUTRAL_500);
             panel.add(viewOnlyLabel);
@@ -167,6 +169,10 @@ public class PromotionsManagementPanel extends JPanel {
         panel.add(addBtn);
         panel.add(editBtn);
         panel.add(deleteBtn);
+
+		addBtn.setVisible(canAdd);
+		editBtn.setVisible(canEdit);
+		deleteBtn.setVisible(canDelete);
 
         addBtn.addActionListener(e -> {
             Promotion p = showPromotionDialog(null);

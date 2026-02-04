@@ -10,7 +10,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public class SupplierDAO {
     public static boolean supportsSuppliers() {
@@ -20,6 +22,30 @@ public class SupplierDAO {
             return false;
         }
     }
+
+	public static void ensureSequentialIdsIfNeeded() {
+		try (Connection c = DBConnection.getConnection()) {
+			if (!hasTable(c, "suppliers")) return;
+			int cnt = 0;
+			int minId = 0;
+			int maxId = 0;
+			try (PreparedStatement ps = c.prepareStatement(
+					"SELECT COUNT(*) AS cnt, COALESCE(MIN(supplier_id),0) AS min_id, COALESCE(MAX(supplier_id),0) AS max_id FROM suppliers");
+				 ResultSet rs = ps.executeQuery()) {
+				if (rs.next()) {
+					cnt = rs.getInt("cnt");
+					minId = rs.getInt("min_id");
+					maxId = rs.getInt("max_id");
+				}
+			}
+			if (cnt <= 0) return;
+			boolean needs = (minId != 1) || (maxId != cnt);
+			if (!needs) return;
+			reorderIds(c);
+		} catch (SQLException ex) {
+			ex.printStackTrace();
+		}
+	}
 
     public static boolean supportsActiveColumn() {
         try (Connection c = DBConnection.getConnection()) {
@@ -32,8 +58,17 @@ public class SupplierDAO {
     public static List<Supplier> findByFilter(String keyword, boolean includeInactive) {
         List<Supplier> list = new ArrayList<>();
 
+        boolean hasIsActive = false;
+        boolean hasStatus = false;
+        try (Connection c = DBConnection.getConnection()) {
+            hasIsActive = hasColumn(c, "suppliers", "is_active");
+            hasStatus = !hasIsActive && hasColumn(c, "suppliers", "status");
+        } catch (SQLException ignored) {
+        }
+
+        String activeExpr = hasIsActive ? "is_active" : (hasStatus ? "status" : "1");
         StringBuilder sql = new StringBuilder(
-                "SELECT supplier_id, supplier_name, phone, email, address, notes FROM suppliers WHERE 1=1");
+                "SELECT supplier_id, supplier_name, phone, email, address, notes, " + activeExpr + " AS active_val FROM suppliers WHERE 1=1");
         List<Object> params = new ArrayList<>();
 
         if (keyword != null && !keyword.trim().isEmpty()) {
@@ -42,6 +77,10 @@ public class SupplierDAO {
             params.add(kw);
             params.add(kw);
             params.add(kw);
+        }
+
+        if (!includeInactive && (hasIsActive || hasStatus)) {
+            sql.append(" AND " + (hasIsActive ? "is_active" : "status") + "=1");
         }
         sql.append(" ORDER BY supplier_id");
 
@@ -59,7 +98,7 @@ public class SupplierDAO {
                             rs.getString("email"),
                             rs.getString("address"),
                             rs.getString("notes"),
-                            true
+                            rs.getInt("active_val") == 1
                     ));
                 }
             }
@@ -158,6 +197,43 @@ public class SupplierDAO {
             return false;
         }
     }
+
+	public static Map<Integer, Double> getTotalImportCostBySupplier() {
+		Map<Integer, Double> out = new LinkedHashMap<>();
+		try (Connection c = DBConnection.getConnection()) {
+			if (!hasTable(c, "inventory_transactions")) return out;
+			if (!hasColumn(c, "inventory_transactions", "supplier_id")) return out;
+
+			String typeCol = hasColumn(c, "inventory_transactions", "transaction_type") ? "transaction_type" : (hasColumn(c, "inventory_transactions", "type") ? "type" : null);
+			String totalCol = hasColumn(c, "inventory_transactions", "total_cost") ? "total_cost" : null;
+			if (totalCol == null) {
+				if (hasColumn(c, "inventory_transactions", "quantity") && hasColumn(c, "inventory_transactions", "unit_price")) {
+					totalCol = "(quantity * unit_price)";
+				}
+			}
+			if (totalCol == null) return out;
+
+			StringBuilder sql = new StringBuilder(
+					"SELECT supplier_id, COALESCE(SUM(" + totalCol + "),0) AS total_import " +
+							"FROM inventory_transactions WHERE supplier_id IS NOT NULL AND supplier_id <> 0");
+			if (typeCol != null) {
+				sql.append(" AND ").append(typeCol).append("='import'");
+			}
+			sql.append(" GROUP BY supplier_id");
+
+			try (PreparedStatement ps = c.prepareStatement(sql.toString());
+				 ResultSet rs = ps.executeQuery()) {
+				while (rs.next()) {
+					int id = rs.getInt("supplier_id");
+					double total = rs.getDouble("total_import");
+					if (id > 0) out.put(id, total);
+				}
+			}
+		} catch (SQLException ex) {
+			ex.printStackTrace();
+		}
+		return out;
+	}
     
     /**
      * Reorder supplier IDs để không bị nhảy số

@@ -1,7 +1,9 @@
 package com.pos.ui;
 
+import com.pos.Session;
 import com.pos.dao.EmployeeDAO;
 import com.pos.model.Employee;
+import com.pos.service.PermissionService;
 import com.pos.ui.theme.UIConstants;
 import com.pos.ui.components.*;
 import com.pos.util.CurrencyUtil;
@@ -60,6 +62,7 @@ public class EmployeesManagementPanel extends JPanel {
         add(buildTable(), BorderLayout.CENTER);
         add(buildActions(), BorderLayout.SOUTH);
 
+        EmployeeDAO.ensureSequentialIdsIfNeeded();
         refreshTable();
     }
 
@@ -159,6 +162,13 @@ public class EmployeesManagementPanel extends JPanel {
         ModernButton addBtn = new ModernButton("Thêm", ModernButton.ButtonType.PRIMARY);
         ModernButton editBtn = new ModernButton("Sửa", ModernButton.ButtonType.SECONDARY);
         ModernButton deleteBtn = new ModernButton("Xóa", ModernButton.ButtonType.DANGER);
+
+        boolean canAdd = PermissionService.canAddTab(Session.getCurrentUser(), "Nhân viên");
+        boolean canEdit = PermissionService.canEditTab(Session.getCurrentUser(), "Nhân viên");
+        boolean canDelete = PermissionService.canDeleteTab(Session.getCurrentUser(), "Nhân viên");
+        addBtn.setVisible(canAdd);
+        editBtn.setVisible(canEdit);
+        deleteBtn.setVisible(canDelete);
 
         panel.add(addBtn);
         panel.add(editBtn);

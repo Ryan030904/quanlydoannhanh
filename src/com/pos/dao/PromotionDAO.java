@@ -17,6 +17,39 @@ import java.util.List;
 public class PromotionDAO {
     private static volatile int cachedCodeMode;
 
+	public static void ensureSequentialIdsIfNeeded() {
+		try (Connection c = DBConnection.getConnection()) {
+			if (!hasTable(c, "promotions")) return;
+			int cnt = 0;
+			int minId = 0;
+			int maxId = 0;
+			try (PreparedStatement ps = c.prepareStatement(
+					"SELECT COUNT(*) AS cnt, COALESCE(MIN(promotion_id),0) AS min_id, COALESCE(MAX(promotion_id),0) AS max_id FROM promotions");
+				 ResultSet rs = ps.executeQuery()) {
+				if (rs.next()) {
+					cnt = rs.getInt("cnt");
+					minId = rs.getInt("min_id");
+					maxId = rs.getInt("max_id");
+				}
+			}
+			if (cnt <= 0) return;
+			boolean needs = (minId != 1) || (maxId != cnt);
+			if (!needs) return;
+
+			c.setAutoCommit(false);
+			try {
+				reorderIdsInTransaction(c);
+				c.commit();
+			} catch (SQLException ex) {
+				try { c.rollback(); } catch (SQLException ignored) {}
+			} finally {
+				try { c.setAutoCommit(true); } catch (SQLException ignored) {}
+			}
+		} catch (SQLException ex) {
+			ex.printStackTrace();
+		}
+	}
+
     public static boolean supportsPromotions() {
         try (Connection c = DBConnection.getConnection()) {
             return hasTable(c, "promotions");
@@ -109,27 +142,33 @@ public class PromotionDAO {
 
     public static boolean create(Promotion p) {
         try (Connection c = DBConnection.getConnection()) {
+            int nextId = 1;
+            String maxSql = "SELECT IFNULL(MAX(promotion_id), 0) + 1 FROM promotions";
+            try (PreparedStatement maxPs = c.prepareStatement(maxSql);
+                 ResultSet rs = maxPs.executeQuery()) {
+                if (rs.next()) nextId = rs.getInt(1);
+            }
+
             int mode = getCodeMode(c);
             String sql;
             if (mode == 3) {
-                sql = "INSERT INTO promotions (promotion_name, code, promotion_code, description, discount_type, discount_value, min_order_amount, start_date, end_date, is_active, applicable_products) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                sql = "INSERT INTO promotions (promotion_id, promotion_name, code, promotion_code, description, discount_type, discount_value, min_order_amount, start_date, end_date, is_active, applicable_products) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             } else if (mode == 2) {
-                sql = "INSERT INTO promotions (promotion_name, promotion_code, description, discount_type, discount_value, min_order_amount, start_date, end_date, is_active, applicable_products) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                sql = "INSERT INTO promotions (promotion_id, promotion_name, promotion_code, description, discount_type, discount_value, min_order_amount, start_date, end_date, is_active, applicable_products) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             } else {
-                sql = "INSERT INTO promotions (promotion_name, code, description, discount_type, discount_value, min_order_amount, start_date, end_date, is_active, applicable_products) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                sql = "INSERT INTO promotions (promotion_id, promotion_name, code, description, discount_type, discount_value, min_order_amount, start_date, end_date, is_active, applicable_products) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             }
 
-            try (PreparedStatement ps = c.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-            bindPromotion(ps, p, mode);
-            int affected = ps.executeUpdate();
-            if (affected <= 0) return false;
-            try (ResultSet keys = ps.getGeneratedKeys()) {
-                if (keys.next()) p.setId(keys.getInt(1));
-            }
-            return true;
+            try (PreparedStatement ps = c.prepareStatement(sql)) {
+                ps.setInt(1, nextId);
+                bindPromotion(ps, p, mode, 2);
+                int affected = ps.executeUpdate();
+                if (affected <= 0) return false;
+                p.setId(nextId);
+                return true;
             }
         } catch (SQLException ex) {
             ex.printStackTrace();
@@ -153,9 +192,9 @@ public class PromotionDAO {
             }
 
             try (PreparedStatement ps = c.prepareStatement(sql)) {
-            int next = bindPromotion(ps, p, mode);
-            ps.setInt(next, p.getId());
-            return ps.executeUpdate() > 0;
+                int next = bindPromotion(ps, p, mode);
+                ps.setInt(next, p.getId());
+                return ps.executeUpdate() > 0;
             }
         } catch (SQLException ex) {
             ex.printStackTrace();
@@ -178,10 +217,26 @@ public class PromotionDAO {
 
     public static boolean delete(int id) {
         String sql = "DELETE FROM promotions WHERE promotion_id=?";
-        try (Connection c = DBConnection.getConnection();
-             PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setInt(1, id);
-            return ps.executeUpdate() > 0;
+        try (Connection c = DBConnection.getConnection()) {
+            c.setAutoCommit(false);
+            try {
+                boolean result;
+                try (PreparedStatement ps = c.prepareStatement(sql)) {
+                    ps.setInt(1, id);
+                    result = ps.executeUpdate() > 0;
+                }
+                if (result) {
+                    reorderIdsInTransaction(c);
+                }
+                c.commit();
+                return result;
+            } catch (SQLException ex) {
+                try { c.rollback(); } catch (SQLException ignored) {}
+                ex.printStackTrace();
+                return false;
+            } finally {
+                try { c.setAutoCommit(true); } catch (SQLException ignored) {}
+            }
         } catch (SQLException ex) {
             ex.printStackTrace();
             return false;
@@ -189,7 +244,11 @@ public class PromotionDAO {
     }
 
     private static int bindPromotion(PreparedStatement ps, Promotion p, int mode) throws SQLException {
-        int idx = 1;
+        return bindPromotion(ps, p, mode, 1);
+    }
+
+    private static int bindPromotion(PreparedStatement ps, Promotion p, int mode, int startIdx) throws SQLException {
+        int idx = startIdx;
         ps.setString(idx++, p.getName());
         if (mode == 3) {
             ps.setString(idx++, p.getCode());
@@ -209,6 +268,42 @@ public class PromotionDAO {
         String applicable = serializeApplicableProducts(p.getApplicableProductIds());
         ps.setString(idx++, applicable);
         return idx;
+    }
+
+    private static void reorderIdsInTransaction(Connection c) throws SQLException {
+        if (c == null) return;
+        boolean hasOrderPromos = hasTable(c, "order_promotions") && hasColumn(c, "order_promotions", "promotion_id");
+
+        try (Statement st = c.createStatement()) {
+            st.execute("DROP TEMPORARY TABLE IF EXISTS temp_promo_map");
+            st.execute("CREATE TEMPORARY TABLE temp_promo_map (old_id INT, new_id INT)");
+        }
+
+        String insertMapping = "INSERT INTO temp_promo_map (old_id, new_id) " +
+                "SELECT promotion_id, @rownum := @rownum + 1 FROM promotions, (SELECT @rownum := 0) r ORDER BY promotion_id";
+        try (Statement st = c.createStatement()) {
+            st.execute(insertMapping);
+        }
+
+        try (Statement st = c.createStatement()) {
+            st.execute("SET FOREIGN_KEY_CHECKS = 0");
+        }
+
+        if (hasOrderPromos) {
+            try (Statement st = c.createStatement()) {
+                st.execute("UPDATE order_promotions op INNER JOIN temp_promo_map m ON op.promotion_id = m.old_id SET op.promotion_id = m.new_id");
+            }
+        }
+
+        try (Statement st = c.createStatement()) {
+            st.execute("UPDATE promotions p2 INNER JOIN temp_promo_map m ON p2.promotion_id = m.old_id SET p2.promotion_id = m.new_id + 1000000");
+            st.execute("UPDATE promotions SET promotion_id = promotion_id - 1000000");
+        }
+
+        try (Statement st = c.createStatement()) {
+            st.execute("SET FOREIGN_KEY_CHECKS = 1");
+            st.execute("DROP TEMPORARY TABLE IF EXISTS temp_promo_map");
+        }
     }
 
     public static String computeStatusLabel(Promotion p) {

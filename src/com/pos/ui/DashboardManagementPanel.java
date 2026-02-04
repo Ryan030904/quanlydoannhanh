@@ -89,12 +89,8 @@ public class DashboardManagementPanel extends JPanel {
         "Hôm nay",
         "Hôm qua", 
         "7 ngày qua",
-        "Tuần này",
         "Tháng này",
-        "Tháng trước",
-        "Quý này",
-        "Năm nay",
-        "Tất cả"
+        "Tháng trước"
     };
     
     public DashboardManagementPanel(Runnable onDataChanged) {
@@ -173,13 +169,44 @@ public class DashboardManagementPanel extends JPanel {
 		ModernButton resetAllBtn = new ModernButton("Xóa dữ liệu thống kê", ModernButton.ButtonType.DANGER, ModernButton.ButtonSize.SMALL);
 		resetAllBtn.setPreferredSize(new Dimension(160, 32));
 		resetAllBtn.addActionListener(e -> {
+			java.time.LocalDate from = fromDatePicker == null ? null : fromDatePicker.getDate();
+			java.time.LocalDate to = toDatePicker == null ? null : toDatePicker.getDate();
+
+			String rangeText = "Từ: " + (from == null ? "(không giới hạn)" : from.toString())
+					+ "  |  Đến: " + (to == null ? "(không giới hạn)" : to.toString());
+
 			int confirm = JOptionPane.showConfirmDialog(this,
-					"Bạn có chắc muốn đặt lại toàn bộ số liệu thống kê đang hiển thị về 0?\n\nLưu ý: Thao tác này KHÔNG xóa dữ liệu trong CSDL.",
-					"Xác nhận đặt lại",
+					"Bạn có chắc muốn XÓA VĨNH VIỄN dữ liệu bán hàng/nhập hàng trong CSDL theo khoảng ngày đang chọn?\n"
+							+ rangeText
+							+ "\n\nLưu ý: Thao tác này KHÔNG thể khôi phục.",
+					"Xác nhận xóa dữ liệu",
 					JOptionPane.YES_NO_OPTION,
 					JOptionPane.WARNING_MESSAGE);
 			if (confirm != JOptionPane.YES_OPTION) return;
-			resetStatsView();
+
+			String typed = JOptionPane.showInputDialog(this,
+					"Để xác nhận, hãy gõ đúng: XOA",
+					"Xác nhận lần 2",
+					JOptionPane.WARNING_MESSAGE);
+			if (typed == null || !"XOA".equalsIgnoreCase(typed.trim())) {
+				JOptionPane.showMessageDialog(this, "Đã hủy. Không có dữ liệu nào bị xóa.");
+				return;
+			}
+
+			try {
+				DashboardDAO.PurgeResult r = DashboardDAO.purgeSalesAndImports(from, to);
+				JOptionPane.showMessageDialog(this,
+						"Đã xóa dữ liệu trong CSDL:\n"
+							+ "- Đơn hàng đã xóa: " + r.ordersDeleted + "\n"
+							+ "- Giao dịch kho (import/sale) đã xóa: " + r.importTransactionsDeleted);
+				refreshAll();
+			} catch (Exception ex) {
+				ex.printStackTrace();
+				JOptionPane.showMessageDialog(this,
+						"Không thể xóa dữ liệu: " + ex.getMessage(),
+						"Lỗi",
+						JOptionPane.ERROR_MESSAGE);
+			}
 		});
 		top.add(resetAllBtn);
         
@@ -310,7 +337,7 @@ public class DashboardManagementPanel extends JPanel {
         tableCard.setRadius(UIConstants.RADIUS_LG);
         tableCard.setBorder(new EmptyBorder(UIConstants.SPACING_MD, UIConstants.SPACING_MD, UIConstants.SPACING_MD, UIConstants.SPACING_MD));
         
-        JLabel title = new JLabel("Top 10 món bán chạy");
+        JLabel title = new JLabel("Danh sách món ăn");
         title.setFont(UIConstants.FONT_HEADING_4);
         title.setForeground(UIConstants.PRIMARY_700);
         tableCard.add(title, BorderLayout.NORTH);
@@ -461,7 +488,7 @@ public class DashboardManagementPanel extends JPanel {
         tableCard.add(title, BorderLayout.NORTH);
         
         supplierStatsModel = new DefaultTableModel(new Object[]{
-            "Mã NCC", "Tên nhà cung cấp", "Số lần nhập", "Tổng giá trị nhập"
+            "STT", "Mã NCC", "Tên nhà cung cấp", "Số lần nhập", "Tổng giá trị nhập"
         }, 0) {
             public boolean isCellEditable(int row, int col) { return false; }
         };
@@ -518,11 +545,6 @@ public class DashboardManagementPanel extends JPanel {
                 from = today.minusDays(6);
                 to = today;
                 break;
-            case "Tuần này":
-                // Monday of current week
-                from = today.minusDays(today.getDayOfWeek().getValue() - 1);
-                to = today;
-                break;
             case "Tháng này":
                 from = today.withDayOfMonth(1);
                 to = today;
@@ -530,19 +552,6 @@ public class DashboardManagementPanel extends JPanel {
             case "Tháng trước":
                 from = today.minusMonths(1).withDayOfMonth(1);
                 to = today.withDayOfMonth(1).minusDays(1);
-                break;
-            case "Quý này":
-                int quarter = (today.getMonthValue() - 1) / 3;
-                from = today.withMonth(quarter * 3 + 1).withDayOfMonth(1);
-                to = today;
-                break;
-            case "Năm nay":
-                from = today.withDayOfYear(1);
-                to = today;
-                break;
-            case "Tất cả":
-                from = null;
-                to = null;
                 break;
         }
         
@@ -603,8 +612,8 @@ public class DashboardManagementPanel extends JPanel {
         DashboardDAO.Counts counts = DashboardDAO.loadCounts();
         totalProductsCard.setValue(String.valueOf(counts.products));
         
-        // Load top products
-        List<DashboardDAO.TopProductRow> topProducts = DashboardDAO.findTopProducts(from, to, 10);
+        // Load products sales including unsold products
+        List<DashboardDAO.TopProductRow> topProducts = DashboardDAO.findProductSales(from, to);
         
         int totalSoldQty = 0;
         topProductsModel.setRowCount(0);
@@ -619,7 +628,7 @@ public class DashboardManagementPanel extends JPanel {
             totalSoldQty += r.quantity;
         }
         
-        if (!topProducts.isEmpty()) {
+        if (totalSoldQty > 0 && !topProducts.isEmpty()) {
             topProductCard.setValue(topProducts.get(0).productName);
         } else {
             topProductCard.setValue("-");
@@ -645,7 +654,7 @@ public class DashboardManagementPanel extends JPanel {
             });
         }
         
-        if (!empStats.isEmpty()) {
+        if (!empStats.isEmpty() && empStats.get(0).revenue > 0) {
             topEmployeeCard.setValue(empStats.get(0).employeeName);
         } else {
             topEmployeeCard.setValue("-");
@@ -670,15 +679,16 @@ public class DashboardManagementPanel extends JPanel {
             });
         }
         
-        if (!custStats.isEmpty()) {
+        if (!custStats.isEmpty() && custStats.get(0).revenue > 0) {
             String topName = custStats.get(0).customerName;
             topCustomerCard.setValue(topName.isEmpty() ? "Khách lẻ" : topName);
         } else {
             topCustomerCard.setValue("-");
         }
         
-        // New customers count (simple estimate - just count in period)
-        newCustomersCard.setValue(String.valueOf(custStats.size()));
+        // New customers count
+        int newCount = DashboardDAO.countNewCustomers(from, to);
+        newCustomersCard.setValue(String.valueOf(Math.max(0, newCount)));
     }
     
     private void refreshSuppliers(LocalDate from, LocalDate to) {
@@ -691,8 +701,10 @@ public class DashboardManagementPanel extends JPanel {
         
         double totalCost = 0;
         supplierStatsModel.setRowCount(0);
+        int stt = 1;
         for (DashboardDAO.SupplierImportStatRow r : supStats) {
             supplierStatsModel.addRow(new Object[]{
+                stt++,
                 r.supplierId,
                 r.supplierName,
                 r.importCount,
@@ -703,7 +715,7 @@ public class DashboardManagementPanel extends JPanel {
         
         totalImportCostCard.setValue(CurrencyUtil.format(totalCost));
         
-        if (!supStats.isEmpty()) {
+        if (!supStats.isEmpty() && totalCost > 0) {
             topSupplierCard.setValue(supStats.get(0).supplierName);
         } else {
             topSupplierCard.setValue("-");
@@ -785,13 +797,14 @@ public class DashboardManagementPanel extends JPanel {
             
             // Supplier stats
             pw.println("THỐNG KÊ NHÀ CUNG CẤP");
-            pw.println("Mã NCC,Tên,Số lần nhập,Tổng giá trị");
+            pw.println("STT,Mã NCC,Tên,Số lần nhập,Tổng giá trị");
             for (int r = 0; r < supplierStatsModel.getRowCount(); r++) {
                 pw.println(
                     supplierStatsModel.getValueAt(r, 0) + "," +
-                    escapeCsv(String.valueOf(supplierStatsModel.getValueAt(r, 1))) + "," +
-                    supplierStatsModel.getValueAt(r, 2) + "," +
-                    supplierStatsModel.getValueAt(r, 3)
+                    supplierStatsModel.getValueAt(r, 1) + "," +
+                    escapeCsv(String.valueOf(supplierStatsModel.getValueAt(r, 2))) + "," +
+                    supplierStatsModel.getValueAt(r, 3) + "," +
+                    supplierStatsModel.getValueAt(r, 4)
                 );
             }
             

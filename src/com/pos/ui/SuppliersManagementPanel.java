@@ -8,11 +8,13 @@ import com.pos.ui.components.CardPanel;
 import com.pos.ui.components.ModernButton;
 import com.pos.ui.components.ModernTableStyle;
 import com.pos.ui.theme.UIConstants;
+import com.pos.util.CurrencyUtil;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.util.Map;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -51,6 +53,7 @@ public class SuppliersManagementPanel extends JPanel {
         add(buildTable(), BorderLayout.CENTER);
         add(buildActions(), BorderLayout.SOUTH);
 
+        SupplierDAO.ensureSequentialIdsIfNeeded();
         refreshTable();
     }
 
@@ -108,7 +111,7 @@ public class SuppliersManagementPanel extends JPanel {
         panel.setBorder(new EmptyBorder(UIConstants.SPACING_MD, UIConstants.SPACING_MD, UIConstants.SPACING_MD, UIConstants.SPACING_MD));
 
         model = new DefaultTableModel(new Object[]{
-                "STT", "Tên", "SĐT", "Email", "Địa chỉ", "Ghi chú"
+                "STT", "Tên", "SĐT", "Email", "Địa chỉ", "Ghi chú", "Tổng tiền nhập"
         }, 0) {
             public boolean isCellEditable(int row, int col) { return false; }
         };
@@ -124,6 +127,7 @@ public class SuppliersManagementPanel extends JPanel {
         table.getColumnModel().getColumn(3).setPreferredWidth(200);  // Email
         table.getColumnModel().getColumn(4).setPreferredWidth(200);  // Địa chỉ
         table.getColumnModel().getColumn(5).setPreferredWidth(160);  // Ghi chú
+        table.getColumnModel().getColumn(6).setPreferredWidth(150);  // Tổng tiền nhập
 
         JScrollPane scroll = new JScrollPane(table);
         scroll.setBorder(BorderFactory.createLineBorder(UIConstants.NEUTRAL_200));
@@ -151,12 +155,12 @@ public class SuppliersManagementPanel extends JPanel {
         editBtn.setPreferredSize(new Dimension(80, 36));
         deleteBtn.setPreferredSize(new Dimension(80, 36));
 
-		boolean canMutate = PermissionService.canMutateTab(Session.getCurrentUser(), "Nhà cung cấp");
-		if (!canMutate) {
-			addBtn.setVisible(false);
-			editBtn.setVisible(false);
-			deleteBtn.setVisible(false);
-		}
+        boolean canAdd = PermissionService.canAddTab(Session.getCurrentUser(), "Nhà cung cấp");
+        boolean canEdit = PermissionService.canEditTab(Session.getCurrentUser(), "Nhà cung cấp");
+        boolean canDelete = PermissionService.canDeleteTab(Session.getCurrentUser(), "Nhà cung cấp");
+        addBtn.setVisible(canAdd);
+        editBtn.setVisible(canEdit);
+        deleteBtn.setVisible(canDelete);
 
         btns.add(addBtn);
         btns.add(editBtn);
@@ -220,17 +224,23 @@ public class SuppliersManagementPanel extends JPanel {
         boolean includeInactive = false;
 
         current = SupplierDAO.findByFilter(keyword, includeInactive);
+        Map<Integer, Double> importBySupplier = SupplierDAO.getTotalImportCostBySupplier();
 
         model.setRowCount(0);
         int stt = 1;
         for (Supplier s : current) {
+            double totalImport = 0;
+            if (importBySupplier != null) {
+                totalImport = importBySupplier.getOrDefault(s.getId(), 0.0);
+            }
             model.addRow(new Object[]{
                     stt++,
                     s.getName(),
                     s.getPhone(),
                     s.getEmail(),
                     s.getAddress(),
-                    s.getNotes()
+                    s.getNotes(),
+                    CurrencyUtil.format(totalImport)
             });
         }
 

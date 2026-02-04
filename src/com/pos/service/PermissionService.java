@@ -41,8 +41,39 @@ public class PermissionService {
 		String code = permissionCodeForUser(user);
 		if ("PQ0".equalsIgnoreCase(code)) return true;
 		if (!canAccessTab(user, t)) return false;
+		return canAddTab(user, t) || canEditTab(user, t) || canDeleteTab(user, t);
+	}
+
+	public static boolean canAddTab(User user, String tabName) {
+		if (tabName == null || tabName.trim().isEmpty()) return false;
+		String t = tabName.trim();
+		String code = permissionCodeForUser(user);
+		if ("PQ0".equalsIgnoreCase(code)) return true;
+		if (!canAccessTab(user, t)) return false;
 		String username = user == null ? null : user.getUsername();
-		Set<String> allowed = loadMutateTabsForUsername(username, code);
+		Set<String> allowed = loadAddTabsForUsername(username, code);
+		return allowed.contains(t);
+	}
+
+	public static boolean canEditTab(User user, String tabName) {
+		if (tabName == null || tabName.trim().isEmpty()) return false;
+		String t = tabName.trim();
+		String code = permissionCodeForUser(user);
+		if ("PQ0".equalsIgnoreCase(code)) return true;
+		if (!canAccessTab(user, t)) return false;
+		String username = user == null ? null : user.getUsername();
+		Set<String> allowed = loadEditTabsForUsername(username, code);
+		return allowed.contains(t);
+	}
+
+	public static boolean canDeleteTab(User user, String tabName) {
+		if (tabName == null || tabName.trim().isEmpty()) return false;
+		String t = tabName.trim();
+		String code = permissionCodeForUser(user);
+		if ("PQ0".equalsIgnoreCase(code)) return true;
+		if (!canAccessTab(user, t)) return false;
+		String username = user == null ? null : user.getUsername();
+		Set<String> allowed = loadDeleteTabsForUsername(username, code);
 		return allowed.contains(t);
 	}
 
@@ -76,6 +107,70 @@ public class PermissionService {
 			}
 		}
 		return loadMutateTabsForPermissionCode(permissionCode);
+	}
+
+	public static Set<String> loadEditTabsForUsername(String username, String permissionCode) {
+		String un = username == null ? "" : username.trim();
+		if (!un.isEmpty() && un.equalsIgnoreCase(ADMIN_USERNAME)) {
+			return parseCsvTabs(defaultTabsForPermissionCode("PQ0"));
+		}
+
+		Properties p = loadProperties();
+		if (!un.isEmpty()) {
+			String key = "user." + un + ".editTabs";
+			if (p.containsKey(key)) {
+				return parseCsvTabs(p.getProperty(key));
+			}
+			String legacyKey = "user." + un + ".mutateTabs";
+			if (p.containsKey(legacyKey)) {
+				return parseCsvTabs(p.getProperty(legacyKey));
+			}
+		}
+		return loadEditTabsForPermissionCode(permissionCode);
+	}
+
+	public static Set<String> loadAddTabsForUsername(String username, String permissionCode) {
+		String un = username == null ? "" : username.trim();
+		if (!un.isEmpty() && un.equalsIgnoreCase(ADMIN_USERNAME)) {
+			return parseCsvTabs(defaultTabsForPermissionCode("PQ0"));
+		}
+
+		Properties p = loadProperties();
+		if (!un.isEmpty()) {
+			String key = "user." + un + ".addTabs";
+			if (p.containsKey(key)) {
+				return parseCsvTabs(p.getProperty(key));
+			}
+			String legacyKey = "user." + un + ".editTabs";
+			if (p.containsKey(legacyKey)) {
+				return parseCsvTabs(p.getProperty(legacyKey));
+			}
+			String legacyKey2 = "user." + un + ".mutateTabs";
+			if (p.containsKey(legacyKey2)) {
+				return parseCsvTabs(p.getProperty(legacyKey2));
+			}
+		}
+		return loadAddTabsForPermissionCode(permissionCode);
+	}
+
+	public static Set<String> loadDeleteTabsForUsername(String username, String permissionCode) {
+		String un = username == null ? "" : username.trim();
+		if (!un.isEmpty() && un.equalsIgnoreCase(ADMIN_USERNAME)) {
+			return parseCsvTabs(defaultTabsForPermissionCode("PQ0"));
+		}
+
+		Properties p = loadProperties();
+		if (!un.isEmpty()) {
+			String key = "user." + un + ".deleteTabs";
+			if (p.containsKey(key)) {
+				return parseCsvTabs(p.getProperty(key));
+			}
+			String legacyKey = "user." + un + ".mutateTabs";
+			if (p.containsKey(legacyKey)) {
+				return parseCsvTabs(p.getProperty(legacyKey));
+			}
+		}
+		return loadDeleteTabsForPermissionCode(permissionCode);
 	}
 
     public static Set<String> loadTabsForRole(String role) {
@@ -124,6 +219,72 @@ public class PermissionService {
 			base.remove("Nhà cung cấp");
 			return base;
 		}
+	}
+
+	public static Set<String> loadEditTabsForPermissionCode(String code) {
+		String c = code == null ? "" : code.trim();
+		if (c.isEmpty()) c = "PQ2";
+		if ("PQ0".equalsIgnoreCase(c)) {
+			return parseCsvTabs(defaultTabsForPermissionCode("PQ0"));
+		}
+		if (!"PQ2".equalsIgnoreCase(c)) {
+			c = "PQ2";
+		}
+
+		Properties p = loadProperties();
+		String permKey = "perm." + c + ".editTabs";
+		if (p.containsKey(permKey)) {
+			return parseCsvTabs(p.getProperty(permKey));
+		}
+		String roleKey = "role.Staff.editTabs";
+		if (p.containsKey(roleKey)) {
+			return parseCsvTabs(p.getProperty(roleKey));
+		}
+		return loadMutateTabsForPermissionCode(c);
+	}
+
+	public static Set<String> loadAddTabsForPermissionCode(String code) {
+		String c = code == null ? "" : code.trim();
+		if (c.isEmpty()) c = "PQ2";
+		if ("PQ0".equalsIgnoreCase(c)) {
+			return parseCsvTabs(defaultTabsForPermissionCode("PQ0"));
+		}
+		if (!"PQ2".equalsIgnoreCase(c)) {
+			c = "PQ2";
+		}
+
+		Properties p = loadProperties();
+		String permKey = "perm." + c + ".addTabs";
+		if (p.containsKey(permKey)) {
+			return parseCsvTabs(p.getProperty(permKey));
+		}
+		String roleKey = "role.Staff.addTabs";
+		if (p.containsKey(roleKey)) {
+			return parseCsvTabs(p.getProperty(roleKey));
+		}
+		return loadEditTabsForPermissionCode(c);
+	}
+
+	public static Set<String> loadDeleteTabsForPermissionCode(String code) {
+		String c = code == null ? "" : code.trim();
+		if (c.isEmpty()) c = "PQ2";
+		if ("PQ0".equalsIgnoreCase(c)) {
+			return parseCsvTabs(defaultTabsForPermissionCode("PQ0"));
+		}
+		if (!"PQ2".equalsIgnoreCase(c)) {
+			c = "PQ2";
+		}
+
+		Properties p = loadProperties();
+		String permKey = "perm." + c + ".deleteTabs";
+		if (p.containsKey(permKey)) {
+			return parseCsvTabs(p.getProperty(permKey));
+		}
+		String roleKey = "role.Staff.deleteTabs";
+		if (p.containsKey(roleKey)) {
+			return parseCsvTabs(p.getProperty(roleKey));
+		}
+		return loadMutateTabsForPermissionCode(c);
 	}
 
     public static Set<String> loadTabsForPermissionCode(String code) {
@@ -216,6 +377,53 @@ public class PermissionService {
 			}
 
 			String key = "user." + un + ".tabs=";
+			boolean updated = false;
+			for (int i = 0; i < lines.size(); i++) {
+				String line = lines.get(i);
+				if (line != null && line.startsWith(key)) {
+					lines.set(i, key + csv);
+					updated = true;
+					break;
+				}
+			}
+			if (!updated) lines.add(key + csv);
+			Files.write(path, lines, StandardCharsets.UTF_8);
+			return true;
+		} catch (Exception ex) {
+			ex.printStackTrace();
+			return false;
+		}
+	}
+
+	public static boolean saveUserEditTabs(String username, String csvTabs) {
+		return saveUserCsvKey(username, "editTabs", csvTabs);
+	}
+
+	public static boolean saveUserAddTabs(String username, String csvTabs) {
+		return saveUserCsvKey(username, "addTabs", csvTabs);
+	}
+
+	public static boolean saveUserDeleteTabs(String username, String csvTabs) {
+		return saveUserCsvKey(username, "deleteTabs", csvTabs);
+	}
+
+	private static boolean saveUserCsvKey(String username, String suffix, String csvTabs) {
+		try {
+			String un = username == null ? "" : username.trim();
+			if (un.isEmpty()) return false;
+			if (un.equalsIgnoreCase(ADMIN_USERNAME)) return false;
+			String suf = suffix == null ? "" : suffix.trim();
+			if (suf.isEmpty()) return false;
+			String csv = csvTabs == null ? "" : csvTabs.trim();
+
+			File f = new File(CONFIG_FILE);
+			Path path = f.toPath();
+			List<String> lines = new ArrayList<>();
+			if (f.exists() && f.isFile()) {
+				lines = Files.readAllLines(path, StandardCharsets.UTF_8);
+			}
+
+			String key = "user." + un + "." + suf + "=";
 			boolean updated = false;
 			for (int i = 0; i < lines.size(); i++) {
 				String line = lines.get(i);

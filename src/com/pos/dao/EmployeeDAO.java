@@ -24,6 +24,39 @@ public class EmployeeDAO {
         }
     }
 
+	public static void ensureSequentialIdsIfNeeded() {
+		try (Connection c = DBConnection.getConnection()) {
+			if (!hasTable(c, "employees")) return;
+			int cnt = 0;
+			int minId = 0;
+			int maxId = 0;
+			try (PreparedStatement ps = c.prepareStatement(
+					"SELECT COUNT(*) AS cnt, COALESCE(MIN(employee_id),0) AS min_id, COALESCE(MAX(employee_id),0) AS max_id FROM employees");
+				 ResultSet rs = ps.executeQuery()) {
+				if (rs.next()) {
+					cnt = rs.getInt("cnt");
+					minId = rs.getInt("min_id");
+					maxId = rs.getInt("max_id");
+				}
+			}
+			if (cnt <= 0) return;
+			boolean needs = (minId != 1) || (maxId != cnt);
+			if (!needs) return;
+
+			c.setAutoCommit(false);
+			try {
+				reorderIdsInTransaction(c);
+				c.commit();
+			} catch (SQLException ex) {
+				try { c.rollback(); } catch (SQLException ignored) {}
+			} finally {
+				try { c.setAutoCommit(true); } catch (SQLException ignored) {}
+			}
+		} catch (SQLException ex) {
+			ex.printStackTrace();
+		}
+	}
+
     public static boolean supportsUsername() {
         try (Connection c = DBConnection.getConnection()) {
             return hasColumn(c, "employees", "username");
@@ -58,10 +91,20 @@ public class EmployeeDAO {
 
     public static List<Employee> findAllActive() {
         List<Employee> list = new ArrayList<>();
-        String sql = "SELECT employee_id, full_name, username, position, is_active FROM employees ORDER BY employee_id";
-        try (Connection c = DBConnection.getConnection();
-             PreparedStatement ps = c.prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
+        try (Connection c = DBConnection.getConnection()) {
+            boolean hasIsActive = hasColumn(c, "employees", "is_active");
+            boolean hasStatus = !hasIsActive && hasColumn(c, "employees", "status");
+
+            StringBuilder sql = new StringBuilder("SELECT employee_id, full_name, username, position, is_active FROM employees");
+            if (hasIsActive) {
+                sql.append(" WHERE is_active=1");
+            } else if (hasStatus) {
+                sql.append(" WHERE status=1");
+            }
+            sql.append(" ORDER BY employee_id");
+
+            try (PreparedStatement ps = c.prepareStatement(sql.toString());
+                 ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
                 list.add(new Employee(
                         rs.getInt("employee_id"),
@@ -70,6 +113,7 @@ public class EmployeeDAO {
                         rs.getString("position"),
                         rs.getInt("is_active") == 1
                 ));
+            }
             }
         } catch (SQLException ex) {
             ex.printStackTrace();
@@ -84,6 +128,8 @@ public class EmployeeDAO {
             boolean hasPhone = hasColumn(c, "employees", "phone");
             boolean hasSalary = hasColumn(c, "employees", "salary");
             boolean hasHireDate = hasColumn(c, "employees", "hire_date");
+            boolean hasIsActive = hasColumn(c, "employees", "is_active");
+            boolean hasStatus = !hasIsActive && hasColumn(c, "employees", "status");
 
             StringBuilder sql = new StringBuilder(
                     "SELECT employee_id, full_name, email" +
@@ -107,6 +153,14 @@ public class EmployeeDAO {
             if (position != null && !position.trim().isEmpty() && !"Tất cả".equalsIgnoreCase(position.trim())) {
                 sql.append(" AND position = ?");
                 params.add(position.trim());
+            }
+
+            if (!includeInactive) {
+                if (hasIsActive) {
+                    sql.append(" AND is_active=1");
+                } else if (hasStatus) {
+                    sql.append(" AND status=1");
+                }
             }
 
             sql.append(" ORDER BY employee_id");
@@ -205,13 +259,20 @@ public class EmployeeDAO {
             return false;
         }
         try (Connection c = DBConnection.getConnection()) {
+			int nextId = 1;
+			String maxSql = "SELECT IFNULL(MAX(employee_id), 0) + 1 FROM employees";
+			try (PreparedStatement maxPs = c.prepareStatement(maxSql);
+				 ResultSet rs = maxPs.executeQuery()) {
+				if (rs.next()) nextId = rs.getInt(1);
+			}
+
             boolean hasUsername = hasColumn(c, "employees", "username");
             boolean hasPhone = hasColumn(c, "employees", "phone");
             boolean hasSalary = hasColumn(c, "employees", "salary");
             boolean hasHireDate = hasColumn(c, "employees", "hire_date");
 
-            StringBuilder cols = new StringBuilder("full_name, email, position, is_active");
-            StringBuilder vals = new StringBuilder("?, ?, ?, ?");
+			StringBuilder cols = new StringBuilder("employee_id, full_name, email, position, is_active");
+			StringBuilder vals = new StringBuilder("?, ?, ?, ?, ?");
             if (hasPhone) {
                 cols.append(", phone");
                 vals.append(", ?");
@@ -230,12 +291,13 @@ public class EmployeeDAO {
             }
 
             String sql = "INSERT INTO employees (" + cols + ") VALUES (" + vals + ")";
-            try (PreparedStatement ps = c.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-                int idx = 1;
-                ps.setString(idx++, e.getFullName());
-                ps.setString(idx++, e.getEmail());
-                ps.setString(idx++, e.getPosition());
-                ps.setInt(idx++, 1);
+			try (PreparedStatement ps = c.prepareStatement(sql)) {
+				int idx = 1;
+				ps.setInt(idx++, nextId);
+				ps.setString(idx++, e.getFullName());
+				ps.setString(idx++, e.getEmail());
+				ps.setString(idx++, e.getPosition());
+				ps.setInt(idx++, 1);
                 if (hasPhone) ps.setString(idx++, e.getPhone());
                 if (hasUsername) ps.setString(idx++, e.getUsername());
                 if (hasSalary) {
@@ -247,12 +309,10 @@ public class EmployeeDAO {
                     else ps.setDate(idx++, Date.valueOf(e.getHireDate()));
                 }
 
-                int affected = ps.executeUpdate();
-                if (affected <= 0) return false;
-                try (ResultSet keys = ps.getGeneratedKeys()) {
-                    if (keys.next()) e.setId(keys.getInt(1));
-                }
-                return true;
+				int affected = ps.executeUpdate();
+				if (affected <= 0) return false;
+				e.setId(nextId);
+				return true;
             }
         } catch (SQLException ex) {
             ex.printStackTrace();
@@ -320,15 +380,79 @@ public class EmployeeDAO {
 
     public static boolean delete(int employeeId) {
         String sql = "DELETE FROM employees WHERE employee_id=?";
-        try (Connection c = DBConnection.getConnection();
-             PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setInt(1, employeeId);
-            return ps.executeUpdate() > 0;
+		try (Connection c = DBConnection.getConnection()) {
+			c.setAutoCommit(false);
+			try {
+				boolean result;
+				try (PreparedStatement ps = c.prepareStatement(sql)) {
+					ps.setInt(1, employeeId);
+					result = ps.executeUpdate() > 0;
+				}
+				if (result) {
+					reorderIdsInTransaction(c);
+				}
+				c.commit();
+				return result;
+			} catch (SQLException ex) {
+				try { c.rollback(); } catch (SQLException ignored) {}
+				ex.printStackTrace();
+				return false;
+			} finally {
+				try { c.setAutoCommit(true); } catch (SQLException ignored) {}
+			}
         } catch (SQLException ex) {
             ex.printStackTrace();
             return false;
         }
     }
+
+	private static void reorderIdsInTransaction(Connection c) throws SQLException {
+		if (c == null) return;
+		boolean hasOrders = hasTable(c, "orders") && hasColumn(c, "orders", "employee_id");
+		boolean hasTx = hasTable(c, "inventory_transactions") && hasColumn(c, "inventory_transactions", "employee_id");
+		boolean hasAudit = hasTable(c, "audit_logs") && hasColumn(c, "audit_logs", "user_id");
+
+		try (Statement st = c.createStatement()) {
+			st.execute("DROP TEMPORARY TABLE IF EXISTS temp_emp_map");
+			st.execute("CREATE TEMPORARY TABLE temp_emp_map (old_id INT, new_id INT)");
+		}
+
+		String insertMapping = "INSERT INTO temp_emp_map (old_id, new_id) " +
+				"SELECT employee_id, @rownum := @rownum + 1 FROM employees, (SELECT @rownum := 0) r ORDER BY employee_id";
+		try (Statement st = c.createStatement()) {
+			st.execute(insertMapping);
+		}
+
+		try (Statement st = c.createStatement()) {
+			st.execute("SET FOREIGN_KEY_CHECKS = 0");
+		}
+
+		if (hasOrders) {
+			try (Statement st = c.createStatement()) {
+				st.execute("UPDATE orders o INNER JOIN temp_emp_map m ON o.employee_id = m.old_id SET o.employee_id = m.new_id");
+			}
+		}
+		if (hasTx) {
+			try (Statement st = c.createStatement()) {
+				st.execute("UPDATE inventory_transactions it INNER JOIN temp_emp_map m ON it.employee_id = m.old_id SET it.employee_id = m.new_id");
+			}
+		}
+		if (hasAudit) {
+			try (Statement st = c.createStatement()) {
+				st.execute("UPDATE audit_logs al INNER JOIN temp_emp_map m ON al.user_id = m.old_id SET al.user_id = m.new_id");
+			}
+		}
+
+		try (Statement st = c.createStatement()) {
+			st.execute("UPDATE employees e INNER JOIN temp_emp_map m ON e.employee_id = m.old_id SET e.employee_id = m.new_id + 1000000");
+			st.execute("UPDATE employees SET employee_id = employee_id - 1000000");
+		}
+
+		try (Statement st = c.createStatement()) {
+			st.execute("SET FOREIGN_KEY_CHECKS = 1");
+			st.execute("DROP TEMPORARY TABLE IF EXISTS temp_emp_map");
+		}
+	}
 
     public static boolean emailExists(String email, Integer ignoreEmployeeId) {
         if (email == null) return false;

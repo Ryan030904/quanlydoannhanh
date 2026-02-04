@@ -1000,185 +1000,139 @@ public class LoginFrame extends JFrame {
         
         return btn;
     }
-    
-    /**
-     * Create window control panel - 3 nút: thu nhỏ, phóng to (disabled), đóng
-     */
-    private JPanel createWindowControlPanel() {
-        JPanel panel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-        panel.setOpaque(false);
-        
-        JButton minimizeBtn = createSimpleWindowButton("", 0); // 0 = minimize
-        minimizeBtn.setToolTipText("Thu nhỏ");
-        minimizeBtn.addActionListener(e -> setState(Frame.ICONIFIED));
-        
-        JButton maximizeBtn = createSimpleWindowButton("", 1); // 1 = maximize
-        maximizeBtn.setToolTipText("Phóng to / Thu nhỏ");
-        maximizeBtn.addActionListener(e -> {
-            int st = getExtendedState();
-            if ((st & JFrame.MAXIMIZED_BOTH) == JFrame.MAXIMIZED_BOTH) {
-                setExtendedState(JFrame.NORMAL);
-                setSize(1100, 700);
-                setLocationRelativeTo(null);
-            } else {
-                setExtendedState(JFrame.MAXIMIZED_BOTH);
-            }
-        });
-        
-        JButton closeBtn = createSimpleWindowButton("", 2); // 2 = close
-        closeBtn.setToolTipText("Đóng");
-        closeBtn.addActionListener(e -> System.exit(0));
-        
-        panel.add(minimizeBtn);
-        panel.add(maximizeBtn);
-        panel.add(closeBtn);
-        
-        return panel;
-    }
 
-    private JButton createSimpleWindowButton(String symbol, int type) {
-        JButton btn = new JButton(symbol) {
-            private boolean isHovered = false;
-            private boolean isPressed = false;
+	private JPanel createWindowControlPanel() {
+		JPanel panel = new JPanel(new BorderLayout());
+		panel.setOpaque(false);
+		panel.setPreferredSize(new Dimension(0, 44));
 
-            {
-                addMouseListener(new MouseAdapter() {
-                    @Override
-                    public void mouseEntered(MouseEvent e) {
-                        isHovered = true;
-                        repaint();
-                    }
+		JPanel group = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0)) {
+			@Override
+			protected void paintComponent(Graphics g) {
+				Graphics2D g2d = (Graphics2D) g.create();
+				g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+				int w = getWidth();
+				int h = getHeight();
+				g2d.setColor(new Color(0, 0, 0, 80));
+				g2d.fillRoundRect(0, 0, w, h, 14, 14);
+				g2d.setColor(new Color(255, 255, 255, 70));
+				g2d.setStroke(new BasicStroke(1.0f));
+				g2d.drawRoundRect(0, 0, w - 1, h - 1, 14, 14);
+				g2d.dispose();
+			}
+		};
+		group.setOpaque(false);
+		group.setBorder(new EmptyBorder(6, 10, 6, 10));
 
-                    @Override
-                    public void mouseExited(MouseEvent e) {
-                        isHovered = false;
-                        isPressed = false;
-                        repaint();
-                    }
+		JButton minimizeBtn = createWindowControlButton(0);
+		minimizeBtn.setToolTipText("Thu nhỏ");
+		minimizeBtn.addActionListener(e -> setState(Frame.ICONIFIED));
 
-                    @Override
-                    public void mousePressed(MouseEvent e) {
-                        isPressed = true;
-                        repaint();
-                    }
+		JButton maximizeBtn = createWindowControlButton(1);
+		maximizeBtn.setToolTipText("Phóng to / Thu nhỏ");
+		maximizeBtn.addActionListener(e -> {
+			int st = getExtendedState();
+			if ((st & JFrame.MAXIMIZED_BOTH) == JFrame.MAXIMIZED_BOTH) {
+				setExtendedState(JFrame.NORMAL);
+				setSize(1100, 700);
+				setLocationRelativeTo(null);
+			} else {
+				setExtendedState(JFrame.MAXIMIZED_BOTH);
+			}
+		});
 
-                    @Override
-                    public void mouseReleased(MouseEvent e) {
-                        isPressed = false;
-                        repaint();
-                    }
-                });
-            }
+		JButton closeBtn = createWindowControlButton(2);
+		closeBtn.setToolTipText("Đóng");
+		closeBtn.addActionListener(e -> System.exit(0));
 
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2d = (Graphics2D) g.create();
-                g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+		group.add(minimizeBtn);
+		group.add(maximizeBtn);
+		group.add(closeBtn);
 
-                Color base;
-                if (type == 2) base = new Color(239, 68, 68);
-                else if (type == 1) base = new Color(34, 197, 94);
-                else base = new Color(245, 158, 11);
+		panel.add(group, BorderLayout.EAST);
+		return panel;
+	}
 
-                int alpha = isHovered ? 235 : 190;
-                if (isPressed) alpha = 255;
+	private JButton createWindowControlButton(int type) {
+		JButton btn = new JButton() {
+			private boolean isHovered = false;
+			private boolean isPressed = false;
 
-                int w = getWidth();
-                int h = getHeight();
-                int d = Math.min(w, h);
+			{
+				setBorderPainted(false);
+				setContentAreaFilled(false);
+				setFocusPainted(false);
+				setOpaque(false);
+				setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+				addMouseListener(new MouseAdapter() {
+					@Override
+					public void mouseEntered(MouseEvent e) {
+						isHovered = true;
+						repaint();
+					}
 
-                g2d.setColor(new Color(0, 0, 0, 45));
-                g2d.fillOval(1, 2, d - 2, d - 2);
+					@Override
+					public void mouseExited(MouseEvent e) {
+						isHovered = false;
+						isPressed = false;
+						repaint();
+					}
 
-                g2d.setColor(new Color(base.getRed(), base.getGreen(), base.getBlue(), alpha));
-                g2d.fillOval(0, 0, d - 1, d - 1);
+					@Override
+					public void mousePressed(MouseEvent e) {
+						isPressed = true;
+						repaint();
+					}
 
-                g2d.setColor(new Color(0, 0, 0, isHovered ? 70 : 45));
-                g2d.setStroke(new BasicStroke(1.15f));
-                g2d.drawOval(0, 0, d - 2, d - 2);
+					@Override
+					public void mouseReleased(MouseEvent e) {
+						isPressed = false;
+						repaint();
+					}
+				});
+			}
 
-                int cx = d / 2;
-                int cy = d / 2;
-                g2d.setColor(new Color(20, 20, 20, isHovered ? 230 : 180));
-                g2d.setStroke(new BasicStroke(1.9f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                if (type == 0) {
-                    g2d.drawLine(cx - 5, cy, cx + 5, cy);
-                } else if (type == 1) {
-                    g2d.drawRect(cx - 5, cy - 5, 10, 10);
-                } else {
-                    g2d.drawLine(cx - 4, cy - 4, cx + 4, cy + 4);
-                    g2d.drawLine(cx + 4, cy - 4, cx - 4, cy + 4);
-                }
+			@Override
+			protected void paintComponent(Graphics g) {
+				Graphics2D g2d = (Graphics2D) g.create();
+				g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+				g2d.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
 
-                g2d.dispose();
-            }
-        };
+				int w = getWidth();
+				int h = getHeight();
+				if (isHovered || isPressed) {
+					Color bg;
+					if (type == 2) {
+						bg = new Color(239, 68, 68, isPressed ? 220 : 185);
+					} else {
+						bg = new Color(255, 255, 255, isPressed ? 70 : 45);
+					}
+					g2d.setColor(bg);
+					g2d.fillRoundRect(1, 1, w - 2, h - 2, 10, 10);
+				}
 
-        btn.setPreferredSize(new Dimension(18, 18));
-        btn.setMinimumSize(new Dimension(18, 18));
-        btn.setMaximumSize(new Dimension(18, 18));
-        btn.setContentAreaFilled(false);
-        btn.setBorderPainted(false);
-        btn.setFocusPainted(false);
-        btn.setOpaque(false);
-        btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+				g2d.setColor(new Color(255, 255, 255, isHovered ? 245 : 225));
+				g2d.setStroke(new BasicStroke(1.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+				int cx = w / 2;
+				int cy = h / 2;
+				if (type == 0) {
+					g2d.drawLine(cx - 7, cy + 4, cx + 7, cy + 4);
+				} else if (type == 1) {
+					g2d.drawRect(cx - 7, cy - 5, 14, 10);
+				} else {
+					g2d.drawLine(cx - 6, cy - 5, cx + 6, cy + 5);
+					g2d.drawLine(cx + 6, cy - 5, cx - 6, cy + 5);
+				}
 
-        return btn;
-    }
-    
-    /**
-     * Tạo nút window control đơn giản
-            
-            g2d.dispose();
-     */
-    private JButton createCloseButton() {
-        JButton btn = new JButton("✕") {
-            private boolean isHovered = false;
-            
-            {
-                addMouseListener(new MouseAdapter() {
-                    @Override
-                    public void mouseEntered(MouseEvent e) {
-                        isHovered = true;
-                        repaint();
-                    }
-                    @Override
-                    public void mouseExited(MouseEvent e) {
-                        isHovered = false;
-                        repaint();
-                    }
-                });
-            }
-            
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2d = (Graphics2D) g.create();
-                g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                
-                if (isHovered) {
-                    g2d.setColor(UIConstants.DANGER_LIGHT);
-                    g2d.fillOval(0, 0, getWidth(), getHeight());
-                }
-                
-                g2d.setFont(UIConstants.FONT_BODY_BOLD);
-                g2d.setColor(isHovered ? UIConstants.DANGER : UIConstants.NEUTRAL_400);
-                FontMetrics fm = g2d.getFontMetrics();
-                int x = (getWidth() - fm.stringWidth(getText())) / 2;
-                int y = (getHeight() + fm.getAscent() - fm.getDescent()) / 2;
-                g2d.drawString(getText(), x, y);
-                
-                g2d.dispose();
-            }
-        };
-        btn.setPreferredSize(new Dimension(32, 32));
-        btn.setContentAreaFilled(false);
-        btn.setBorderPainted(false);
-        btn.setFocusPainted(false);
-        btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        btn.addActionListener(e -> System.exit(0));
-        
-        return btn;
-    }
+				g2d.dispose();
+			}
+		};
+
+		btn.setPreferredSize(new Dimension(44, 28));
+		btn.setMinimumSize(new Dimension(44, 28));
+		btn.setMaximumSize(new Dimension(44, 28));
+		return btn;
+	}
     
     /**
      * Enable window dragging - với threshold chống nhạy

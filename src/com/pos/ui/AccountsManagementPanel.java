@@ -315,15 +315,44 @@ public class AccountsManagementPanel extends JPanel {
 
 		String code = PermissionService.getPermissionCodeForAccount(un, roleOrPosition);
 		Set<String> defaultAllowed = PermissionService.loadTabsForPermissionCode(code);
+		Set<String> defaultEdit = PermissionService.loadEditTabsForPermissionCode(code);
+		Set<String> defaultDelete = PermissionService.loadDeleteTabsForPermissionCode(code);
 
-		JPanel grid = new JPanel(new GridLayout(0, 2, 10, 8));
+		JPanel grid = new JPanel(new GridLayout(0, 4, 10, 8));
 		grid.setBorder(new EmptyBorder(10, 10, 10, 10));
-		List<JCheckBox> boxes = new ArrayList<>();
+		List<JCheckBox> viewBoxes = new ArrayList<>();
+		List<JCheckBox> editBoxes = new ArrayList<>();
+		List<JCheckBox> deleteBoxes = new ArrayList<>();
+		grid.add(new JLabel("Tab"));
+		grid.add(new JLabel("Xem"));
+		grid.add(new JLabel("Sửa"));
+		grid.add(new JLabel("Xóa"));
 		for (String tab : ALL_TABS) {
-			JCheckBox cb = new JCheckBox(tab);
-			cb.setSelected(defaultAllowed.contains(tab));
-			boxes.add(cb);
-			grid.add(cb);
+			JLabel name = new JLabel(tab);
+			JCheckBox view = new JCheckBox();
+			view.setSelected(defaultAllowed.contains(tab));
+			JCheckBox edit = new JCheckBox();
+			edit.setSelected(defaultEdit.contains(tab));
+			edit.setEnabled(view.isSelected());
+			JCheckBox del = new JCheckBox();
+			del.setSelected(defaultDelete.contains(tab));
+			del.setEnabled(view.isSelected());
+			view.addActionListener(e -> {
+				boolean on = view.isSelected();
+				edit.setEnabled(on);
+				del.setEnabled(on);
+				if (!on) {
+					edit.setSelected(false);
+					del.setSelected(false);
+				}
+			});
+			viewBoxes.add(view);
+			editBoxes.add(edit);
+			deleteBoxes.add(del);
+			grid.add(name);
+			grid.add(view);
+			grid.add(edit);
+			grid.add(del);
 		}
 
 		JScrollPane scroll = new JScrollPane(grid);
@@ -335,16 +364,25 @@ public class AccountsManagementPanel extends JPanel {
 		if (res != JOptionPane.OK_OPTION) return;
 
 		StringJoiner sj = new StringJoiner(",");
-		for (int i = 0; i < boxes.size(); i++) {
-			if (boxes.get(i).isSelected()) sj.add(ALL_TABS[i]);
+		StringJoiner sjEdit = new StringJoiner(",");
+		StringJoiner sjDelete = new StringJoiner(",");
+		for (int i = 0; i < viewBoxes.size(); i++) {
+			if (viewBoxes.get(i).isSelected()) sj.add(ALL_TABS[i]);
+			if (viewBoxes.get(i).isSelected() && editBoxes.get(i).isSelected()) sjEdit.add(ALL_TABS[i]);
+			if (viewBoxes.get(i).isSelected() && deleteBoxes.get(i).isSelected()) sjDelete.add(ALL_TABS[i]);
 		}
 		String csv = sj.toString();
+		String csvEdit = sjEdit.toString();
+		String csvDelete = sjDelete.toString();
 		if (csv.trim().isEmpty()) {
 			JOptionPane.showMessageDialog(this, "Phải chọn ít nhất 1 tab");
 			return;
 		}
 
-		if (!PermissionService.saveUserTabs(un, csv)) {
+		boolean okTabs = PermissionService.saveUserTabs(un, csv);
+		boolean okEdit = PermissionService.saveUserEditTabs(un, csvEdit);
+		boolean okDelete = PermissionService.saveUserDeleteTabs(un, csvDelete);
+		if (!okTabs || !okEdit || !okDelete) {
 			JOptionPane.showMessageDialog(this,
 					"Không thể lưu phân quyền vào permissions.properties",
 					"Lỗi",

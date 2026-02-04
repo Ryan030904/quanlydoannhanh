@@ -16,6 +16,11 @@ import java.util.Map;
 import java.util.List;
 
 public class DashboardDAO {
+	public static class PurgeResult {
+		public int ordersDeleted;
+		public int importTransactionsDeleted;
+	}
+
     public static class Counts {
         public int products;
         public int employees;
@@ -231,6 +236,112 @@ public class DashboardDAO {
         return list;
     }
 
+	public static PurgeResult purgeSalesAndImports(LocalDate fromDate, LocalDate toDate) throws SQLException {
+		PurgeResult out = new PurgeResult();
+		try (Connection c = DBConnection.getConnection()) {
+			c.setAutoCommit(false);
+			try {
+				out.ordersDeleted = purgeOrdersInTransaction(c, fromDate, toDate);
+				out.importTransactionsDeleted = purgeImportTransactionsInTransaction(c, fromDate, toDate);
+				c.commit();
+				return out;
+			} catch (SQLException ex) {
+				try { c.rollback(); } catch (SQLException ignored) {}
+				throw ex;
+			} finally {
+				try { c.setAutoCommit(true); } catch (SQLException ignored) {}
+			}
+		}
+	}
+
+	private static int purgeOrdersInTransaction(Connection c, LocalDate fromDate, LocalDate toDate) throws SQLException {
+		if (c == null) throw new SQLException("Connection is null");
+		if (!hasTable(c, "orders")) return 0;
+
+		String timeCol = hasColumn(c, "orders", "order_time") ? "order_time" : (hasColumn(c, "orders", "created_at") ? "created_at" : null);
+		if (timeCol == null && (fromDate != null || toDate != null)) {
+			throw new SQLException("Bảng orders không có cột thời gian để lọc theo ngày");
+		}
+
+		StringBuilder where = new StringBuilder(" WHERE 1=1");
+		List<Object> params = new ArrayList<>();
+		if (timeCol != null) {
+			appendDateRange(where, params, timeCol, fromDate, toDate);
+		}
+
+		int cnt;
+		try (PreparedStatement ps = c.prepareStatement("SELECT COUNT(*) FROM orders" + where)) {
+			bindParams(ps, params);
+			try (ResultSet rs = ps.executeQuery()) {
+				cnt = rs.next() ? rs.getInt(1) : 0;
+			}
+		}
+		if (cnt <= 0) return 0;
+
+		try (PreparedStatement ps = c.prepareStatement("DELETE FROM orders" + where)) {
+			bindParams(ps, params);
+			ps.executeUpdate();
+		}
+		return cnt;
+	}
+
+	private static int purgeImportTransactionsInTransaction(Connection c, LocalDate fromDate, LocalDate toDate) throws SQLException {
+		if (c == null) throw new SQLException("Connection is null");
+		if (!hasTable(c, "inventory_transactions")) return 0;
+
+		String timeCol = hasColumn(c, "inventory_transactions", "transaction_date") ? "transaction_date" : (hasColumn(c, "inventory_transactions", "created_at") ? "created_at" : null);
+		if (timeCol == null && (fromDate != null || toDate != null)) {
+			throw new SQLException("Bảng inventory_transactions không có cột thời gian để lọc theo ngày");
+		}
+
+		String typeCol = hasColumn(c, "inventory_transactions", "transaction_type") ? "transaction_type" : (hasColumn(c, "inventory_transactions", "type") ? "type" : null);
+
+		StringBuilder where = new StringBuilder(" WHERE 1=1");
+		List<Object> params = new ArrayList<>();
+		if (typeCol != null) {
+			where.append(" AND ").append(typeCol).append(" IN ('import','sale')");
+		}
+		if (timeCol != null) {
+			appendDateRange(where, params, timeCol, fromDate, toDate);
+		}
+
+		int cnt;
+		try (PreparedStatement ps = c.prepareStatement("SELECT COUNT(*) FROM inventory_transactions" + where)) {
+			bindParams(ps, params);
+			try (ResultSet rs = ps.executeQuery()) {
+				cnt = rs.next() ? rs.getInt(1) : 0;
+			}
+		}
+		if (cnt <= 0) return 0;
+
+		try (PreparedStatement ps = c.prepareStatement("DELETE FROM inventory_transactions" + where)) {
+			bindParams(ps, params);
+			ps.executeUpdate();
+		}
+		return cnt;
+	}
+
+	private static void appendDateRange(StringBuilder where, List<Object> params, String colExpr, LocalDate fromDate, LocalDate toDate) {
+		if (colExpr == null || colExpr.trim().isEmpty()) return;
+		if (fromDate != null) {
+			where.append(" AND ").append(colExpr).append(" >= ?");
+			params.add(Timestamp.valueOf(fromDate.atStartOfDay()));
+		}
+		if (toDate != null) {
+			where.append(" AND ").append(colExpr).append(" < ?");
+			params.add(Timestamp.valueOf(toDate.plusDays(1).atStartOfDay()));
+		}
+	}
+
+	private static void bindParams(PreparedStatement ps, List<Object> params) throws SQLException {
+		if (ps == null || params == null) return;
+		for (int i = 0; i < params.size(); i++) {
+			Object p = params.get(i);
+			if (p instanceof Timestamp) ps.setTimestamp(i + 1, (Timestamp) p);
+			else ps.setObject(i + 1, p);
+		}
+	}
+
     private static String productIngredientsProductIdColumn(Connection c) {
         if (c == null) return "product_id";
         if (hasColumn(c, "product_ingredients", "product_id")) return "product_id";
@@ -413,26 +524,62 @@ public class DashboardDAO {
     public static List<EmployeeStatRow> findEmployeeStats(LocalDate fromDate, LocalDate toDate) {
         List<EmployeeStatRow> list = new ArrayList<>();
         try (Connection c = DBConnection.getConnection()) {
-            if (!hasColumn(c, "orders", "employee_id")) return list;
+            if (!hasTable(c, "employees")) return list;
+
+            String empIdCol = hasColumn(c, "employees", "employee_id") ? "employee_id" : (hasColumn(c, "employees", "id") ? "id" : null);
+            if (empIdCol == null) return list;
+
+            String empNameCol = hasColumn(c, "employees", "full_name") ? "full_name" : (hasColumn(c, "employees", "name") ? "name" : null);
+            String empNameExpr = empNameCol != null ? ("COALESCE(e." + empNameCol + ", CONCAT('NV#', e." + empIdCol + "))")
+                    : ("CONCAT('NV#', e." + empIdCol + ")");
+
+            String activeCol = hasColumn(c, "employees", "is_active") ? "is_active" : (hasColumn(c, "employees", "status") ? "status" : null);
+            String activeWhere = activeCol != null ? (" WHERE e." + activeCol + " = 1") : "";
+
+            // If orders table doesn't exist (or has no employee_id), just return employees with zeros
+            if (!hasTable(c, "orders") || !hasColumn(c, "orders", "employee_id")) {
+                String sql = "SELECT e." + empIdCol + " AS employee_id, " + empNameExpr + " AS employee_name " +
+                        "FROM employees e" + activeWhere + " ORDER BY employee_name";
+                try (PreparedStatement ps = c.prepareStatement(sql);
+                     ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        list.add(new EmployeeStatRow(
+                                rs.getInt("employee_id"),
+                                rs.getString("employee_name"),
+                                0,
+                                0
+                        ));
+                    }
+                }
+                return list;
+            }
+
             String timeCol = hasColumn(c, "orders", "order_time") ? "order_time" : (hasColumn(c, "orders", "created_at") ? "created_at" : null);
             if (timeCol == null) timeCol = "order_id";
 
-            StringBuilder sql = new StringBuilder(
-                    "SELECT o.employee_id, COALESCE(e.full_name, CONCAT('NV#', o.employee_id)) AS employee_name, " +
-                            "COUNT(*) AS order_count, COALESCE(SUM(o.total_amount),0) AS revenue " +
-                            "FROM orders o LEFT JOIN employees e ON e.employee_id = o.employee_id WHERE 1=1");
+            StringBuilder agg = new StringBuilder(
+                    "SELECT o.employee_id AS employee_id, COUNT(*) AS order_count, COALESCE(SUM(o.total_amount),0) AS revenue " +
+                            "FROM orders o WHERE 1=1");
             List<Object> params = new ArrayList<>();
             if (fromDate != null) {
-                sql.append(" AND o.").append(timeCol).append(" >= ?");
+                agg.append(" AND o.").append(timeCol).append(" >= ?");
                 params.add(Timestamp.valueOf(fromDate.atStartOfDay()));
             }
             if (toDate != null) {
-                sql.append(" AND o.").append(timeCol).append(" < ?");
+                agg.append(" AND o.").append(timeCol).append(" < ?");
                 params.add(Timestamp.valueOf(toDate.plusDays(1).atStartOfDay()));
             }
-            sql.append(" GROUP BY o.employee_id, employee_name ORDER BY revenue DESC");
+            agg.append(" GROUP BY o.employee_id");
 
-            try (PreparedStatement ps = c.prepareStatement(sql.toString())) {
+            String sql =
+                    "SELECT e." + empIdCol + " AS employee_id, " + empNameExpr + " AS employee_name, " +
+                            "COALESCE(a.order_count,0) AS order_count, COALESCE(a.revenue,0) AS revenue " +
+                            "FROM employees e " +
+                            "LEFT JOIN (" + agg + ") a ON a.employee_id = e." + empIdCol +
+                            (activeWhere.isEmpty() ? "" : activeWhere) +
+                            " ORDER BY revenue DESC, order_count DESC, employee_name ASC";
+
+            try (PreparedStatement ps = c.prepareStatement(sql)) {
                 for (int i = 0; i < params.size(); i++) {
                     Object p = params.get(i);
                     if (p instanceof Timestamp) ps.setTimestamp(i + 1, (Timestamp) p);
@@ -458,85 +605,120 @@ public class DashboardDAO {
     public static List<CustomerStatRow> findCustomerStats(LocalDate fromDate, LocalDate toDate) {
         List<CustomerStatRow> list = new ArrayList<>();
         try (Connection c = DBConnection.getConnection()) {
-            String timeCol = hasColumn(c, "orders", "order_time") ? "order_time" : (hasColumn(c, "orders", "created_at") ? "created_at" : null);
-            if (timeCol == null) timeCol = "order_id";
+			if (!hasTable(c, "customers")) return list;
 
-            boolean hasCustomerId = hasColumn(c, "orders", "customer_id");
-            boolean hasCustomerNameCol = hasColumn(c, "orders", "customer_name");
+			String custIdCol = hasColumn(c, "customers", "customer_id") ? "customer_id" : (hasColumn(c, "customers", "id") ? "id" : null);
+			if (custIdCol == null) return list;
 
-            String customerNameExpr;
-            if (hasCustomerId && hasTable(c, "customers")) {
-                customerNameExpr = "COALESCE(c.full_name" + (hasCustomerNameCol ? ", o.customer_name" : "") + ", '')";
-            } else {
-                customerNameExpr = hasCustomerNameCol ? "COALESCE(o.customer_name,'')" : "''";
-            }
+			String custNameCol = hasColumn(c, "customers", "full_name") ? "full_name" : (hasColumn(c, "customers", "name") ? "name" : null);
+			String custNameExpr = custNameCol != null
+					? ("COALESCE(c." + custNameCol + ", CONCAT('KH#', c." + custIdCol + "))")
+					: ("CONCAT('KH#', c." + custIdCol + ")");
 
-            StringBuilder sql = new StringBuilder(
-                    "SELECT " + (hasCustomerId ? "COALESCE(o.customer_id,0)" : "0") + " AS customer_id, " +
-                            customerNameExpr + " AS customer_name, COUNT(*) AS order_count, COALESCE(SUM(o.total_amount),0) AS revenue, COALESCE(MIN(o.notes), '') AS notes " +
-                            "FROM orders o " +
-                            (hasCustomerId && hasTable(c, "customers") ? "LEFT JOIN customers c ON c.customer_id = o.customer_id " : "") +
-                            "WHERE 1=1");
-            List<Object> params = new ArrayList<>();
-            if (fromDate != null) {
-                sql.append(" AND o.").append(timeCol).append(" >= ?");
-                params.add(Timestamp.valueOf(fromDate.atStartOfDay()));
-            }
-            if (toDate != null) {
-                sql.append(" AND o.").append(timeCol).append(" < ?");
-                params.add(Timestamp.valueOf(toDate.plusDays(1).atStartOfDay()));
-            }
-            sql.append(" GROUP BY customer_id, customer_name ORDER BY revenue DESC");
+			String activeCol = hasColumn(c, "customers", "is_active") ? "is_active" : (hasColumn(c, "customers", "status") ? "status" : null);
+			String activeWhere = activeCol != null ? (" WHERE c." + activeCol + " = 1") : "";
 
-            Map<String, CustomerStatRow> byName = new LinkedHashMap<>();
-            try (PreparedStatement ps = c.prepareStatement(sql.toString())) {
-                for (int i = 0; i < params.size(); i++) {
-                    Object p = params.get(i);
-                    if (p instanceof Timestamp) ps.setTimestamp(i + 1, (Timestamp) p);
-                    else ps.setObject(i + 1, p);
-                }
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        int id = rs.getInt("customer_id");
-                        String name = rs.getString("customer_name");
-                        if (name == null) name = "";
-                        name = name.trim();
-                        if (name.isEmpty()) {
-                            String notes = rs.getString("notes");
-                            String parsed = parseToken(notes, "Khách hàng:");
-                            if (parsed == null || parsed.trim().isEmpty()) {
-                                parsed = parseToken(notes, "Customer:");
-                            }
-                            if (parsed != null) name = parsed.trim();
-                        }
-                        int cnt = rs.getInt("order_count");
-                        double rev = rs.getDouble("revenue");
+			boolean hasOrders = hasTable(c, "orders");
+			boolean hasOrderCustomerId = hasOrders && hasColumn(c, "orders", "customer_id");
+			String timeCol = hasOrders
+					? (hasColumn(c, "orders", "order_time") ? "order_time" : (hasColumn(c, "orders", "created_at") ? "created_at" : null))
+					: null;
+			if (timeCol == null) timeCol = "order_id";
+			boolean hasCustomerNameCol = hasOrders && hasColumn(c, "orders", "customer_name");
 
-                        if (id <= 0 && name.isEmpty()) {
-                            continue;
-                        }
+			// If orders table doesn't exist (or has no customer_id), just return customers with zeros
+			if (!hasOrders || !hasOrderCustomerId) {
+				String sql = "SELECT c." + custIdCol + " AS customer_id, " + custNameExpr + " AS customer_name " +
+						"FROM customers c" + activeWhere + " ORDER BY customer_name";
+				try (PreparedStatement ps = c.prepareStatement(sql);
+					 ResultSet rs = ps.executeQuery()) {
+					while (rs.next()) {
+						list.add(new CustomerStatRow(
+							rs.getInt("customer_id"),
+							rs.getString("customer_name"),
+							0,
+							0
+						));
+					}
+				}
+				return list;
+			}
 
-                        if (id <= 0) {
-                            String key = name.toLowerCase();
-                            CustomerStatRow existing = byName.get(key);
-                            if (existing == null) {
-                                byName.put(key, new CustomerStatRow(0, name, cnt, rev));
-                            } else {
-                                byName.put(key, new CustomerStatRow(0, existing.customerName, existing.orderCount + cnt, existing.revenue + rev));
-                            }
-                        } else {
-                            list.add(new CustomerStatRow(id, name, cnt, rev));
-                        }
-                    }
-                }
-            }
+			StringBuilder agg = new StringBuilder(
+					"SELECT o.customer_id AS customer_id, COUNT(*) AS order_count, COALESCE(SUM(o.total_amount),0) AS revenue " +
+							"FROM orders o WHERE o.customer_id IS NOT NULL AND o.customer_id <> 0");
+			List<Object> params = new ArrayList<>();
+			if (fromDate != null) {
+				agg.append(" AND o.").append(timeCol).append(" >= ?");
+				params.add(Timestamp.valueOf(fromDate.atStartOfDay()));
+			}
+			if (toDate != null) {
+				agg.append(" AND o.").append(timeCol).append(" < ?");
+				params.add(Timestamp.valueOf(toDate.plusDays(1).atStartOfDay()));
+			}
+			agg.append(" GROUP BY o.customer_id");
 
-            if (!byName.isEmpty()) {
-                list.addAll(byName.values());
-            }
+			String sql =
+					"SELECT c." + custIdCol + " AS customer_id, " + custNameExpr + " AS customer_name, " +
+							"COALESCE(a.order_count,0) AS order_count, COALESCE(a.revenue,0) AS revenue " +
+							"FROM customers c " +
+							"LEFT JOIN (" + agg + ") a ON a.customer_id = c." + custIdCol +
+							(activeWhere.isEmpty() ? "" : activeWhere) +
+							" ORDER BY revenue DESC, order_count DESC, customer_name ASC";
 
-            // Ensure sorted by revenue desc after merging name-only groups
-            list.sort(Comparator.comparingDouble((CustomerStatRow r) -> r.revenue).reversed());
+			try (PreparedStatement ps = c.prepareStatement(sql)) {
+				for (int i = 0; i < params.size(); i++) {
+					Object p = params.get(i);
+					if (p instanceof Timestamp) ps.setTimestamp(i + 1, (Timestamp) p);
+					else ps.setObject(i + 1, p);
+				}
+				try (ResultSet rs = ps.executeQuery()) {
+					while (rs.next()) {
+						list.add(new CustomerStatRow(
+							rs.getInt("customer_id"),
+							rs.getString("customer_name"),
+							rs.getInt("order_count"),
+							rs.getDouble("revenue")
+						));
+					}
+				}
+			}
+
+			// Optional: add a guest row (orders without customer_id) so stats match reality
+			if (hasCustomerNameCol) {
+				StringBuilder guestSql = new StringBuilder(
+						"SELECT COUNT(*) AS order_count, COALESCE(SUM(total_amount),0) AS revenue " +
+							"FROM orders o WHERE (o.customer_id IS NULL OR o.customer_id = 0) AND COALESCE(o.customer_name,'') <> ''");
+				List<Object> guestParams = new ArrayList<>();
+				if (fromDate != null) {
+					guestSql.append(" AND o.").append(timeCol).append(" >= ?");
+					guestParams.add(Timestamp.valueOf(fromDate.atStartOfDay()));
+				}
+				if (toDate != null) {
+					guestSql.append(" AND o.").append(timeCol).append(" < ?");
+					guestParams.add(Timestamp.valueOf(toDate.plusDays(1).atStartOfDay()));
+				}
+				try (PreparedStatement ps = c.prepareStatement(guestSql.toString())) {
+					for (int i = 0; i < guestParams.size(); i++) {
+						Object p = guestParams.get(i);
+						if (p instanceof Timestamp) ps.setTimestamp(i + 1, (Timestamp) p);
+						else ps.setObject(i + 1, p);
+					}
+					try (ResultSet rs = ps.executeQuery()) {
+						if (rs.next()) {
+							int oc = rs.getInt("order_count");
+							double rev = rs.getDouble("revenue");
+							if (oc > 0 || rev > 0) {
+								list.add(new CustomerStatRow(0, "Khách lẻ", oc, rev));
+							}
+						}
+					}
+				}
+			}
+
+			list.sort(Comparator
+					.comparingDouble((CustomerStatRow r) -> r.revenue).reversed()
+					.thenComparing(r -> r.customerName == null ? "" : r.customerName, String.CASE_INSENSITIVE_ORDER));
         } catch (SQLException ex) {
             ex.printStackTrace();
         }
@@ -599,6 +781,10 @@ public class DashboardDAO {
 
             if (hasSupplierId) {
                 String supplierActiveWhere = "";
+                String supActiveCol = hasColumn(c, "suppliers", "is_active") ? "is_active" : (hasColumn(c, "suppliers", "status") ? "status" : null);
+                if (supActiveCol != null) {
+                    supplierActiveWhere = " WHERE s." + supActiveCol + " = 1";
+                }
 
                 String importCountExprLeft = txIdCol != null
                         ? ("COUNT(DISTINCT t." + txIdCol + ")")

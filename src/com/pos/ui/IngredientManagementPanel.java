@@ -1,10 +1,12 @@
 package com.pos.ui;
 
+import com.pos.Session;
 import com.pos.dao.IngredientDAO;
 import com.pos.dao.SupplierDAO;
 import com.pos.db.DBConnection;
 import com.pos.model.Ingredient;
 import com.pos.model.Supplier;
+import com.pos.service.PermissionService;
 import com.pos.ui.components.CardPanel;
 import com.pos.ui.components.ModernButton;
 import com.pos.ui.components.ModernTableStyle;
@@ -107,6 +109,14 @@ public class IngredientManagementPanel extends JPanel {
         actions.add(deleteBtn);
         actions.add(importBtn);
 
+        boolean canAdd = PermissionService.canAddTab(Session.getCurrentUser(), "Nguyên liệu");
+        boolean canEdit = PermissionService.canEditTab(Session.getCurrentUser(), "Nguyên liệu");
+        boolean canDelete = PermissionService.canDeleteTab(Session.getCurrentUser(), "Nguyên liệu");
+        addBtn.setVisible(canAdd);
+        editBtn.setVisible(canEdit);
+        deleteBtn.setVisible(canDelete);
+        importBtn.setVisible(canEdit);
+
         top.add(filters, BorderLayout.CENTER);
         top.add(actions, BorderLayout.EAST);
 
@@ -119,7 +129,7 @@ public class IngredientManagementPanel extends JPanel {
         tableCard.setBorder(new EmptyBorder(UIConstants.SPACING_MD, UIConstants.SPACING_MD, UIConstants.SPACING_MD, UIConstants.SPACING_MD));
 
         model = new DefaultTableModel(new Object[]{
-                "STT", "Mã", "Tên", "Đơn vị", "Tồn hiện tại", "Tồn tối thiểu", "Giá nhập", "Nhà cung cấp"
+                "Mã", "Tên", "Đơn vị", "Tồn hiện tại", "Tồn tối thiểu", "Giá nhập", "Nhà cung cấp"
         }, 0) {
             public boolean isCellEditable(int row, int col) { return false; }
         };
@@ -129,14 +139,13 @@ public class IngredientManagementPanel extends JPanel {
 
         // Tối ưu column widths
         table.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
-        table.getColumnModel().getColumn(0).setPreferredWidth(50);   // STT
-        table.getColumnModel().getColumn(1).setPreferredWidth(60);   // Mã
-        table.getColumnModel().getColumn(2).setPreferredWidth(200);  // Tên
-        table.getColumnModel().getColumn(3).setPreferredWidth(70);   // Đơn vị
-        table.getColumnModel().getColumn(4).setPreferredWidth(100);  // Tồn hiện tại
-        table.getColumnModel().getColumn(5).setPreferredWidth(100);  // Tồn tối thiểu
-        table.getColumnModel().getColumn(6).setPreferredWidth(100);  // Giá nhập
-        table.getColumnModel().getColumn(7).setPreferredWidth(180);  // Nhà cung cấp
+        table.getColumnModel().getColumn(0).setPreferredWidth(60);   // Mã
+        table.getColumnModel().getColumn(1).setPreferredWidth(200);  // Tên
+        table.getColumnModel().getColumn(2).setPreferredWidth(70);   // Đơn vị
+        table.getColumnModel().getColumn(3).setPreferredWidth(100);  // Tồn hiện tại
+        table.getColumnModel().getColumn(4).setPreferredWidth(100);  // Tồn tối thiểu
+        table.getColumnModel().getColumn(5).setPreferredWidth(100);  // Giá nhập
+        table.getColumnModel().getColumn(6).setPreferredWidth(180);  // Nhà cung cấp
 
         JScrollPane scroll = new JScrollPane(table);
         scroll.setBorder(BorderFactory.createLineBorder(UIConstants.NEUTRAL_200));
@@ -144,6 +153,7 @@ public class IngredientManagementPanel extends JPanel {
         tableCard.add(scroll, BorderLayout.CENTER);
         add(tableCard, BorderLayout.CENTER);
 
+        IngredientDAO.ensureSequentialIdsIfNeeded();
         reloadSuppliers();
         refreshTable();
 
@@ -194,30 +204,30 @@ public class IngredientManagementPanel extends JPanel {
         String prevSel = prevSelObj == null ? null : String.valueOf(prevSelObj);
         DefaultComboBoxModel<String> m = new DefaultComboBoxModel<>();
         m.addElement("Tất cả");
-		if (SupplierDAO.supportsSuppliers()) {
-			for (Supplier s : SupplierDAO.findByFilter("", false)) {
-				if (s != null && s.getName() != null && !s.getName().trim().isEmpty()) {
-					m.addElement(s.getName().trim());
-				}
-			}
-		} else {
-			for (String s : IngredientDAO.findAllSuppliers()) {
-				m.addElement(s);
-			}
-		}
+        if (SupplierDAO.supportsSuppliers()) {
+            for (Supplier s : SupplierDAO.findByFilter("", false)) {
+                if (s != null && s.getName() != null && !s.getName().trim().isEmpty()) {
+                    m.addElement(s.getName().trim());
+                }
+            }
+        } else {
+            for (String s : IngredientDAO.findAllSuppliers()) {
+                m.addElement(s);
+            }
+        }
         supplierCombo.setModel(m);
         supplierCombo.setMaximumRowCount(20);
-		if (prevSel != null && m.getIndexOf(prevSel) >= 0) {
-			supplierCombo.setSelectedItem(prevSel);
-		} else {
-			supplierCombo.setSelectedIndex(0);
-		}
+        if (prevSel != null && m.getIndexOf(prevSel) >= 0) {
+            supplierCombo.setSelectedItem(prevSel);
+        } else {
+            supplierCombo.setSelectedIndex(0);
+        }
     }
 
-	public void onSuppliersChanged() {
-		reloadSuppliers();
-		refreshTable();
-	}
+    public void onSuppliersChanged() {
+        reloadSuppliers();
+        refreshTable();
+    }
 
     public void refreshTable() {
         model.setRowCount(0);
@@ -229,14 +239,12 @@ public class IngredientManagementPanel extends JPanel {
 
         currentIngredients = IngredientDAO.findByFilter(keyword, supplier, low, false);
 
-        int stt = 1;
         for (Ingredient ing : currentIngredients) {
             String currentStockStr = CurrencyUtil.formatQuantity(ing.getCurrentStock());
             String minObj = supportsMin ? CurrencyUtil.formatQuantity(ing.getMinStockLevel()) : "-";
             String unitPriceStr = ing.getUnitPrice() == null ? "" : CurrencyUtil.format(ing.getUnitPrice());
 
             model.addRow(new Object[]{
-                    stt++,
                     ing.getId(),
                     ing.getName(),
                     ing.getUnit(),

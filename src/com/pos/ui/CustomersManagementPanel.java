@@ -1,14 +1,18 @@
 package com.pos.ui;
 
+import com.pos.Session;
 import com.pos.dao.CustomerDAO;
 import com.pos.model.Customer;
+import com.pos.service.PermissionService;
 import com.pos.ui.theme.UIConstants;
 import com.pos.ui.components.*;
+import com.pos.util.CurrencyUtil;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.util.Map;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -49,6 +53,7 @@ public class CustomersManagementPanel extends JPanel {
         add(buildTable(), BorderLayout.CENTER);
         add(buildActions(), BorderLayout.SOUTH);
 
+        CustomerDAO.ensureSequentialIdsIfNeeded();
         refreshTable();
     }
 
@@ -102,7 +107,7 @@ public class CustomersManagementPanel extends JPanel {
 
         // Bảng 3 cột: Mã, Tên, SĐT
         model = new DefaultTableModel(new Object[]{
-                "STT", "Tên", "SĐT"
+                "STT", "Tên", "SĐT", "Tổng chi tiêu"
         }, 0) {
             @Override
             public boolean isCellEditable(int row, int col) { return false; }
@@ -128,6 +133,13 @@ public class CustomersManagementPanel extends JPanel {
         ModernButton addBtn = new ModernButton("Thêm", ModernButton.ButtonType.PRIMARY);
         ModernButton editBtn = new ModernButton("Sửa", ModernButton.ButtonType.SECONDARY);
         ModernButton deleteBtn = new ModernButton("Xóa", ModernButton.ButtonType.DANGER);
+
+        boolean canAdd = PermissionService.canAddTab(Session.getCurrentUser(), "Khách hàng");
+        boolean canEdit = PermissionService.canEditTab(Session.getCurrentUser(), "Khách hàng");
+        boolean canDelete = PermissionService.canDeleteTab(Session.getCurrentUser(), "Khách hàng");
+        addBtn.setVisible(canAdd);
+        editBtn.setVisible(canEdit);
+        deleteBtn.setVisible(canDelete);
 
         panel.add(addBtn);
         panel.add(editBtn);
@@ -189,14 +201,21 @@ public class CustomersManagementPanel extends JPanel {
         String keyword = searchField.getText() == null ? null : searchField.getText().trim();
 
         current = CustomerDAO.findByFilter(keyword, null, false);
+		Map<Integer, Double> spentByCustomer = CustomerDAO.getTotalSpentByCustomer();
 
         model.setRowCount(0);
         for (int i = 0; i < current.size(); i++) {
             Customer c = current.get(i);
+			double spent = 0;
+			if (spentByCustomer != null) {
+				spent = spentByCustomer.getOrDefault(c.getId(), 0.0);
+			}
+			c.setTotalSpent(spent);
             model.addRow(new Object[]{
                 i + 1,
                 c.getFullName(),
-                c.getPhone()
+				c.getPhone(),
+				CurrencyUtil.format(spent)
             });
         }
 

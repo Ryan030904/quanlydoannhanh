@@ -10,6 +10,7 @@ import com.pos.model.Employee;
 import com.pos.model.Ingredient;
 import com.pos.model.Supplier;
 import com.pos.model.User;
+import com.pos.service.PermissionService;
 import com.pos.util.CurrencyUtil;
 import com.pos.ui.components.CardPanel;
 import com.pos.ui.components.DatePicker;
@@ -340,6 +341,10 @@ public class ImportGoodsPanel extends JPanel {
         addBtn.setPreferredSize(new Dimension(80, 28));
         addAllBtn.setPreferredSize(new Dimension(90, 28));
 
+        boolean canEdit = PermissionService.canEditTab(Session.getCurrentUser(), "Nhập hàng");
+        addBtn.setVisible(canEdit);
+        addAllBtn.setVisible(canEdit);
+
         addBtn.addActionListener(e -> addSelectedIngredient());
         addAllBtn.addActionListener(e -> addAllFilteredIngredients());
 
@@ -383,6 +388,10 @@ public class ImportGoodsPanel extends JPanel {
         ModernButton clearBtn = new ModernButton("Xóa tất cả", ModernButton.ButtonType.WARNING, ModernButton.ButtonSize.SMALL);
         removeBtn.setPreferredSize(new Dimension(85, 26));
         clearBtn.setPreferredSize(new Dimension(85, 26));
+
+        boolean canDelete = PermissionService.canDeleteTab(Session.getCurrentUser(), "Nhập hàng");
+        removeBtn.setVisible(canDelete);
+        clearBtn.setVisible(canDelete);
 
         removeBtn.addActionListener(e -> removeSelectedDetail());
         clearBtn.addActionListener(e -> clearAllDetails());
@@ -505,6 +514,9 @@ public class ImportGoodsPanel extends JPanel {
         ModernButton saveBtn = new ModernButton("Nhập", ModernButton.ButtonType.SUCCESS, ModernButton.ButtonSize.MEDIUM);
         cancelBtn.setPreferredSize(new Dimension(90, 36));
         saveBtn.setPreferredSize(new Dimension(130, 36));
+
+        boolean canEdit = PermissionService.canEditTab(Session.getCurrentUser(), "Nhập hàng");
+        saveBtn.setVisible(canEdit);
 
         cancelBtn.addActionListener(e -> {
             if (parent != null) parent.navigateToTab("Nguyên liệu");
